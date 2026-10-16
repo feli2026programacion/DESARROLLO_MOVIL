@@ -61,6 +61,11 @@ export default function Login({ navigation }) {
         </TouchableOpacity>
       </View>
 
+      {/*boton de crear cuenta */}
+      <TouchableOpacity onPress={() => navigation.navigate('SignUp')}>
+        <Text style={styles.signUpText}>¿No tienes cuenta aún? Regístrate</Text>
+      </TouchableOpacity>
+
       {/* 3. VENTANITA MODAL (FLOTANTE) PARA RECUPERAR CONTRASEÑA */}
       <Modal
         animationType="fade"
