@@ -23,16 +23,21 @@ export default function Login({ navigation }) {
     <View style={styles.container}>
       {/* 1. SECCIÓN SUPERIOR: Imagen (Isologotipo) y Título */}
       <View style={styles.header}>
-        <Image
-          source={require('../assets/logo.png')}
-          style={styles.logo}
-        />
-        <Text style={styles.title}>RT BURPEES GYM</Text>
-      </View>
+          <Image
+            source={require('../assets/logo.png')}
+            style={styles.logo}
+          />
+        </View>
+
 
       {/* 2. SECCIÓN DEL FORMULARIO */}
       <View style={styles.form}>
+       <Text style={styles.title}>RT BURPEES GYM</Text> 
         <Text style={styles.label}>USUARIO</Text>
+        <View style={styles.inputWrapper}>
+        <View style={styles.iconContainer}>
+            <Text style={styles.iconText}>👤</Text>
+        </View>
         <TextInput
           style={styles.input}
           placeholder="Ingresá tu usuario"
@@ -40,8 +45,13 @@ export default function Login({ navigation }) {
           onChangeText={setUsername}
           autoCapitalize="none"
         />
+       </View>
 
         <Text style={styles.label}>CONTRASEÑA</Text>
+        <View style={styles.inputWrapper}>
+            <View style={styles.iconContainer}>
+              <Text style={styles.iconText}>🔒</Text>
+            </View>
         <TextInput
           style={styles.input}
           placeholder="********"
@@ -49,17 +59,26 @@ export default function Login({ navigation }) {
           onChangeText={setPassword}
           secureTextEntry={true}
         />
+        </View>
+
+        {/* BOTÓN INICIAR SESIÓN */}
+        <TouchableOpacity style={styles.loginButton}>
+          <Text style={styles.loginButtonText}>INICIAR SESIÓN</Text>
+        </TouchableOpacity>
 
         {/* BOTÓN "OLVIDASTE TU CONTRASEÑA" */}
         <TouchableOpacity onPress={() => setModalVisible(true)} style={styles.olvidasteContainer}>
           <Text style={styles.olvidasteText}>¿Olvidaste tu contraseña?</Text>
         </TouchableOpacity>
 
-        {/* BOTÓN INICIAR SESIÓN */}
-        <TouchableOpacity style={styles.loginButton}>
-          <Text style={styles.loginButtonText}>INICIAR SESIÓN</Text>
+        <View style={styles.divider} />
+        {/* SECCIÓN CREAR CUENTA */}
+        <Text style={styles.subtext}>¿No tenés cuenta?</Text>
+        <TouchableOpacity style={styles.createAccountButton}>
+          <Text style={styles.createAccountText}>CREAR CUENTA</Text>
         </TouchableOpacity>
       </View>
+      
 
       {/* 3. VENTANITA MODAL (FLOTANTE) PARA RECUPERAR CONTRASEÑA */}
       <Modal
@@ -108,66 +127,135 @@ export default function Login({ navigation }) {
 }
 
 const styles = StyleSheet.create({
+  scrollContainer: {
+    flexGrow: 1,
+    backgroundColor: '#FAFAFA',
+  },
   container: {
     flex: 1,
-    padding: 20,
     justifyContent: 'center',
-    backgroundColor: '#fff',
+    alignItems: 'center',
+    padding: 20,
+    
   },
   header: {
     alignItems: 'center',
-    marginBottom: 30,
+    marginBottom: 35,
   },
   logo: {
-    width: 100,
-    height: 100,
-    resizeMode: 'contain',
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    marginTop: 20,
+  },
+  form: {
+    width: '90%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    borderWidth: 1.5,
+    borderColor: '#F07D00',
+    paddingHorizontal: 20,
+    paddingVertical: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 4,
   },
   title: {
     fontSize: 22,
-    fontWeight: 'bold',
-    marginTop: 10,
-    color: '#000',
-  },
-  form: {
-    width: '100%',
+    fontWeight: '900',
+    color: '#000000',
+    textAlign: 'center',
+    letterSpacing: 1,
+    marginBottom: 15,
   },
   label: {
-    fontSize: 14,
+    alignSelf: 'flex-start',
+    fontSize: 11,
     fontWeight: 'bold',
-    marginBottom: 5,
-    color: '#333',
+    color: '#000000',
+    marginBottom: 6,
+    marginTop: 6,
   },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 15,
-    backgroundColor: '#f9f9f9',
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    backgroundColor: '#F5F5F5',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#F07D00',
+    marginBottom: 12,
+    overflow: 'hidden',
   },
-  olvidasteContainer: {
-    alignItems: 'flex-end',
-    marginBottom: 20,
-  },
-  olvidasteText: {
-    color: '#ff9800',
-    fontSize: 13,
-    fontWeight: '600',
-    textDecorationLine: 'underline',
-  },
-  loginButton: {
-    backgroundColor: '#ff9800',
-    padding: 15,
-    borderRadius: 8,
+  iconContainer: {
+    backgroundColor: '#7A7A7A',
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  loginButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
+  iconText: {
     fontSize: 16,
+    color: '#FFFFFF',
   },
-  // ESTILOS DE LA VENTANA MODAL
+  input: {
+    flex: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#333333',
+  },
+  loginButton: {
+    backgroundColor: '#FF9800',
+    width: '100%',
+    paddingVertical: 13,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 10,
+    marginBottom: 10,
+  },
+  loginButtonText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 14,
+    letterSpacing: 0.5,
+  },
+  olvidasteContainer: {
+    marginVertical: 6,
+  },
+  olvidasteText: {
+    color: '#F07D00',
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  divider: {
+    width: '100%',
+    height: 1,
+    backgroundColor: '#EAEAEA',
+    marginVertical: 14,
+  },
+  subtext: {
+    fontSize: 12,
+    color: '#666666',
+    marginBottom: 10,
+  },
+  createAccountButton: {
+    backgroundColor: '#3E322B',
+    width: '100%',
+    paddingVertical: 13,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  createAccountText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 14,
+    letterSpacing: 0.5,
+  },
+  // Estilos del Modal
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
@@ -225,7 +313,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   sendButton: {
-    backgroundColor: '#ff9800',
+    backgroundColor: '#FF9800',
   },
   sendText: {
     color: '#fff',
