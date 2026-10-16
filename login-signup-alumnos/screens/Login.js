@@ -1,3 +1,4 @@
+// Cambio realizado por Katri para la rama katri
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Image, Modal, Alert, StyleSheet } from 'react-native';
 
@@ -167,7 +168,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 16,
   },
-  // ESTILOS DE LA VENTANA MODAL
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
