@@ -1,155 +1,260 @@
+// screens/Login.js
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Image, Modal, Alert, StyleSheet } from 'react-native';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  Image,
+  Modal,
+  Alert,
+  StyleSheet,
+  ActivityIndicator,
+  ScrollView,
+} from 'react-native';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { collection, query, where, getDocs } from 'firebase/firestore'; // 👈 Importamos funciones de Firestore
+import { auth, db } from '../src/config/firebaseConfig';
 
 export default function Login({ navigation }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
-  // Estados para la ventanita modal de "Olvidar contraseña"
+  const [errorMessage, setErrorMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+
   const [modalVisible, setModalVisible] = useState(false);
   const [emailRecuperacion, setEmailRecuperacion] = useState('');
 
-  const handleEnviarRecuperacion = () => {
-    if (!emailRecuperacion) {
-      Alert.alert("Error", "Por favor, ingresá tu correo electrónico.");
+  const handleLogin = async () => {
+    setErrorMessage('');
+
+    if (!username.trim()) {
+      setErrorMessage('El campo Usuario es obligatorio.');
       return;
     }
-    Alert.alert("Éxito", "Se enviaron las instrucciones a tu correo electrónico.");
+
+    if (!password.trim()) {
+      setErrorMessage('El campo Contraseña es obligatorio.');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      let emailToLogin = username.trim();
+
+      // Buscar el correo real en Firestore si el usuario no ingresó un email directo
+      if (!username.includes('@')) {
+        const usersRef = collection(db, 'users');
+        const q = query(usersRef, where('username', '==', username.trim().toLowerCase()));
+        const querySnapshot = await getDocs(q);
+
+        if (!querySnapshot.empty) {
+          const userData = querySnapshot.docs[0].data();
+          emailToLogin = userData.email;
+        } else {
+          emailToLogin = `${username.trim()}@gmail.com`;
+        }
+      }
+
+      await signInWithEmailAndPassword(auth, emailToLogin, password);
+    } catch (error) {
+      setErrorMessage('Usuario o contraseña incorrectos.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEnviarRecuperacion = () => {
+    if (!emailRecuperacion) {
+      Alert.alert('Error', 'Por favor, ingresá tu correo electrónico.');
+      return;
+    }
+    Alert.alert('Éxito', 'Se enviaron las instrucciones a tu correo electrónico.');
     setModalVisible(false);
     setEmailRecuperacion('');
   };
 
   return (
-    <View style={styles.container}>
-      {/* 1. SECCIÓN SUPERIOR: Imagen (Isologotipo) y Título */}
-      <View style={styles.header}>
-          <Image
-            source={require('../assets/logo.png')}
-            style={styles.logo}
-          />
+    <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
+      <View style={styles.container}>
+        {/* ISOLOGOTIPO CIRCULAR CENTRADO */}
+        <View style={styles.header}>
+          <View style={styles.logoWrapper}>
+            <Image
+              source={require('../assets/logo.png')}
+              style={styles.logo}
+              resizeMode="cover"
+            />
+          </View>
         </View>
 
+        {/* FORMULARIO */}
+        <View style={styles.form}>
+          <Text style={styles.title}>RT BURPEES GYM</Text>
 
-      {/* 2. SECCIÓN DEL FORMULARIO */}
-      <View style={styles.form}>
-       <Text style={styles.title}>RT BURPEES GYM</Text> 
-        <Text style={styles.label}>USUARIO</Text>
-        <View style={styles.inputWrapper}>
-        <View style={styles.iconContainer}>
-            <Text style={styles.iconText}>👤</Text>
-        </View>
-        <TextInput
-          style={styles.input}
-          placeholder="Ingresá tu usuario"
-          value={username}
-          onChangeText={setUsername}
-          autoCapitalize="none"
-        />
-       </View>
+          <Text style={styles.label}>USUARIO</Text>
+          <View style={styles.inputWrapper}>
+            <View style={styles.iconContainer}>
+              <Text style={styles.iconText}>👤</Text>
+            </View>
+            <TextInput
+              style={styles.input}
+              placeholder="Ingresá tu usuario"
+              placeholderTextColor="#888"
+              value={username}
+              onChangeText={(text) => {
+                setUsername(text);
+                if (errorMessage) setErrorMessage('');
+              }}
+              autoCapitalize="none"
+            />
+          </View>
 
-        <Text style={styles.label}>CONTRASEÑA</Text>
-        <View style={styles.inputWrapper}>
+          <Text style={styles.label}>CONTRASEÑA</Text>
+          <View style={styles.inputWrapper}>
             <View style={styles.iconContainer}>
               <Text style={styles.iconText}>🔒</Text>
             </View>
-        <TextInput
-          style={styles.input}
-          placeholder="********"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry={true}
-        />
+            <TextInput
+              style={styles.input}
+              placeholder="********"
+              placeholderTextColor="#888"
+              value={password}
+              onChangeText={(text) => {
+                setPassword(text);
+                if (errorMessage) setErrorMessage('');
+              }}
+              secureTextEntry={!showPassword}
+            />
+            <TouchableOpacity
+              style={styles.eyeIconContainer}
+              onPress={() => setShowPassword(!showPassword)}
+            >
+              <Text style={styles.eyeIconText}>{showPassword ? '🙈' : '👁️'}</Text>
+            </TouchableOpacity>
+          </View>
+
+          {errorMessage !== '' && (
+            <View style={styles.errorBox}>
+              <Text style={styles.errorText}>{errorMessage}</Text>
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={styles.loginButton}
+            onPress={handleLogin}
+            disabled={loading}
+            activeOpacity={0.8}
+          >
+            {loading ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={styles.loginButtonText}>INICIAR SESIÓN</Text>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={() => setModalVisible(true)} style={styles.olvidasteContainer}>
+            <Text style={styles.olvidasteText}>¿Olvidaste tu contraseña?</Text>
+          </TouchableOpacity>
+
+          <View style={styles.divider} />
+
+          <Text style={styles.subtext}>¿No tenés cuenta?</Text>
+          <TouchableOpacity
+            style={styles.createAccountButton}
+            onPress={() => navigation.navigate('SignUp')}
+          >
+            <Text style={styles.createAccountText}>CREAR CUENTA</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* BOTÓN INICIAR SESIÓN */}
-        <TouchableOpacity style={styles.loginButton}>
-          <Text style={styles.loginButtonText}>INICIAR SESIÓN</Text>
-        </TouchableOpacity>
+        {/* MODAL RECUPERAR CONTRASEÑA */}
+        <Modal
+          animationType="fade"
+          transparent={true}
+          visible={modalVisible}
+          onRequestClose={() => setModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Recuperar Contraseña</Text>
+              <Text style={styles.modalDescription}>
+                Ingresá tu correo electrónico para enviarte las instrucciones de restablecimiento:
+              </Text>
 
-        {/* BOTÓN "OLVIDASTE TU CONTRASEÑA" */}
-        <TouchableOpacity onPress={() => setModalVisible(true)} style={styles.olvidasteContainer}>
-          <Text style={styles.olvidasteText}>¿Olvidaste tu contraseña?</Text>
-        </TouchableOpacity>
+              <TextInput
+                style={styles.inputModal}
+                placeholder="correo@ejemplo.com"
+                placeholderTextColor="#888"
+                value={emailRecuperacion}
+                onChangeText={setEmailRecuperacion}
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
 
-        <View style={styles.divider} />
-        {/* SECCIÓN CREAR CUENTA */}
-        <Text style={styles.subtext}>¿No tenés cuenta?</Text>
-        <TouchableOpacity style={styles.createAccountButton}>
-          <Text style={styles.createAccountText}>CREAR CUENTA</Text>
-        </TouchableOpacity>
-      </View>
-      
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[styles.buttonModal, styles.cancelButton]}
+                  onPress={() => setModalVisible(false)}
+                >
+                  <Text style={styles.cancelText}>Cancelar</Text>
+                </TouchableOpacity>
 
-      {/* 3. VENTANITA MODAL (FLOTANTE) PARA RECUPERAR CONTRASEÑA */}
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Recuperar Contraseña</Text>
-            <Text style={styles.modalDescription}>
-              Ingresá tu correo electrónico para enviarte las instrucciones de restablecimiento:
-            </Text>
-
-            <TextInput
-              style={styles.inputModal}
-              placeholder="correo@ejemplo.com"
-              placeholderTextColor="#888"
-              value={emailRecuperacion}
-              onChangeText={setEmailRecuperacion}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-
-            <View style={styles.modalButtons}>
-              <TouchableOpacity 
-                style={[styles.buttonModal, styles.cancelButton]} 
-                onPress={() => setModalVisible(false)}
-              >
-                <Text style={styles.cancelText}>Cancelar</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={[styles.buttonModal, styles.sendButton]} 
-                onPress={handleEnviarRecuperacion}
-              >
-                <Text style={styles.sendText}>Enviar</Text>
-              </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.buttonModal, styles.sendButton]}
+                  onPress={handleEnviarRecuperacion}
+                >
+                  <Text style={styles.sendText}>Enviar</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
-      </Modal>
-    </View>
+        </Modal>
+      </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   scrollContainer: {
     flexGrow: 1,
-    backgroundColor: '#FAFAFA',
+    backgroundColor: '#FFFFFF',
   },
   container: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
-    
   },
   header: {
     alignItems: 'center',
-    marginBottom: 35,
+    justifyContent: 'center',
+    marginBottom: 20,
+    marginTop: 10,
+  },
+  logoWrapper: {
+    width: 170,
+    height: 170,
+    borderRadius: 85,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
   },
   logo: {
-    width: 150,
-    height: 150,
-    borderRadius: 75,
-    marginTop: 20,
+    width: '100%',
+    height: '100%',
   },
   form: {
-    width: '90%',
+    width: '100%',
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
     borderWidth: 1.5,
@@ -208,13 +313,36 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#333333',
   },
+  eyeIconContainer: {
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  eyeIconText: {
+    fontSize: 16,
+  },
+  errorBox: {
+    width: '100%',
+    backgroundColor: '#FDE8E8',
+    borderColor: '#F8B4B4',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginVertical: 8,
+  },
+  errorText: {
+    color: '#E02424',
+    fontSize: 13,
+    fontWeight: '500',
+  },
   loginButton: {
     backgroundColor: '#FF9800',
     width: '100%',
     paddingVertical: 13,
     borderRadius: 12,
     alignItems: 'center',
-    marginTop: 10,
+    marginTop: 8,
     marginBottom: 10,
   },
   loginButtonText: {
@@ -255,7 +383,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     letterSpacing: 0.5,
   },
-  // Estilos del Modal
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',

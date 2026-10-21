@@ -1,3 +1,4 @@
+// navigation/Navigation.js
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
@@ -36,7 +37,11 @@ export default function Navigation() {
     <NavigationContainer>
       <Stack.Navigator>
         {user ? (
-          <Stack.Screen name="Home" component={Home} options={{ title: 'Inicio' }} />
+          <Stack.Screen 
+            name="Home" 
+            component={Home} 
+            options={{ headerShown: false }} 
+          />
         ) : (
           <>
             <Stack.Screen name="Login" component={Login} options={{ title: 'Iniciar sesión' }} />
