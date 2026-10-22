@@ -5,9 +5,12 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, isFirebaseConfigured } from '../src/config/firebaseConfig';
+
 import Login from '../screens/Login';
 import SignUp from '../screens/SignUp';
 import Home from '../screens/Home';
+import Clientes from '../screens/Clientes';
+import Productos from '../screens/Productos';
 
 const Stack = createStackNavigator();
 
@@ -30,18 +33,34 @@ export default function Navigation() {
   }
 
   if (user === undefined) {
-    return <View style={styles.center}><ActivityIndicator size="large" /></View>;
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
   }
 
   return (
     <NavigationContainer>
       <Stack.Navigator>
         {user ? (
-          <Stack.Screen 
-            name="Home" 
-            component={Home} 
-            options={{ headerShown: false }} 
-          />
+          <>
+            <Stack.Screen 
+              name="Home" 
+              component={Home} 
+              options={{ headerShown: false }} 
+            />
+            <Stack.Screen 
+              name="Clientes" 
+              component={Clientes} 
+              options={{ title: 'Clientes', headerStyle: { backgroundColor: '#1E1E1E' }, headerTintColor: '#FF7A00' }} 
+            />
+            <Stack.Screen 
+              name="Productos" 
+              component={Productos} 
+              options={{ title: 'Productos / Stock', headerStyle: { backgroundColor: '#1E1E1E' }, headerTintColor: '#FF7A00' }} 
+            />
+          </>
         ) : (
           <>
             <Stack.Screen name="Login" component={Login} options={{ title: 'Iniciar sesión' }} />
