@@ -7,6 +7,10 @@ import { auth, isFirebaseConfigured } from '../src/config/firebaseConfig';
 import Login from '../screens/Login';
 import SignUp from '../screens/SignUp';
 import Home from '../screens/Home';
+// NUEVAS IMPORTACIONES: Añadimos tus nuevas pantallas creadas al enrutador
+import Menu from '../screens/Menu';
+import Perfil from '../screens/Perfil';
+import Clientes from '../screens/Clientes';
 
 const Stack = createStackNavigator();
 
@@ -34,13 +38,24 @@ export default function Navigation() {
 
   return (
     <NavigationContainer>
-      <Stack.Navigator>
+      {/* 
+        CORRECCIÓN: Agregamos screenOptions={{ headerShown: false }} para ocultar la barra blanca 
+        por defecto de React Navigation y que luzcan tus encabezados naranjas personalizados.
+      */}
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
         {user ? (
-          <Stack.Screen name="Home" component={Home} options={{ title: 'Inicio' }} />
+          <>
+            {/* Si el usuario está logueado, primero ve el Home (Logo central) */}
+            <Stack.Screen name="Home" component={Home} />
+            {/* Registramos tus pantallas para habilitar navigation.navigate() entre ellas */}
+            <Stack.Screen name="Menu" component={Menu} />
+            <Stack.Screen name="Perfil" component={Perfil} />
+            <Stack.Screen name="Clientes" component={Clientes} />
+          </>
         ) : (
           <>
-            <Stack.Screen name="Login" component={Login} options={{ title: 'Iniciar sesión' }} />
-            <Stack.Screen name="SignUp" component={SignUp} options={{ title: 'Registro' }} />
+            <Stack.Screen name="Login" component={Login} />
+            <Stack.Screen name="SignUp" component={SignUp} />
           </>
         )}
       </Stack.Navigator>
@@ -52,3 +67,4 @@ const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   message: { textAlign: 'center', fontSize: 16 },
 });
+
