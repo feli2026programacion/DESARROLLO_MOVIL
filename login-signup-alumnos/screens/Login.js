@@ -1,449 +1,625 @@
-// screens/Login.js
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  View,
+  ActivityIndicator,
+  Image,
+  ImageBackground,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
-  Image,
-  Modal,
-  Alert,
-  StyleSheet,
-  ActivityIndicator,
-  ScrollView,
+  View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import {
+  useFonts,
+  Montserrat_600SemiBold,
+  Montserrat_700Bold,
+  Montserrat_800ExtraBold,
+} from '@expo-google-fonts/montserrat';
+import {
+  Poppins_400Regular,
+  Poppins_500Medium,
+  Poppins_600SemiBold,
+} from '@expo-google-fonts/poppins';
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { collection, query, where, getDocs } from 'firebase/firestore'; // 👈 Importamos funciones de Firestore
-import { auth, db } from '../src/config/firebaseConfig';
+import { auth, isFirebaseConfigured } from '../src/config/firebaseConfig';
 
-export default function Login({ navigation }) {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+const COLORES = {
+  blanco: '#FFFFFF',
+  negro: '#000000',
+  naranja: '#FF6600',
+  amarilloDorado: '#FDB813',
+  maderaOscura: '#3D2B1F',
+  grisMedio: '#BDBFBC',
+};
 
-  const [errorMessage, setErrorMessage] = useState('');
-  const [loading, setLoading] = useState(false);
+const REGEX_CORREO = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 
-  const [modalVisible, setModalVisible] = useState(false);
-  const [emailRecuperacion, setEmailRecuperacion] = useState('');
+export default function Login({ navigation, route }) {
+  const [fuentesCargadas] = useFonts({
+    Montserrat_600SemiBold,
+    Montserrat_700Bold,
+    Montserrat_800ExtraBold,
+    Poppins_400Regular,
+    Poppins_500Medium,
+    Poppins_600SemiBold,
+  });
 
-  const handleLogin = async () => {
-    setErrorMessage('');
+  const refContrasena = useRef(null);
 
-    if (!username.trim()) {
-      setErrorMessage('El campo Usuario es obligatorio.');
-      return;
+  const [correo, setCorreo] = useState('');
+  const [contrasena, setContrasena] = useState('');
+  const [mostrarContrasena, setMostrarContrasena] = useState(false);
+
+  const [errorCorreo, setErrorCorreo] = useState('');
+  const [errorContrasena, setErrorContrasena] = useState('');
+  const [errorAcceso, setErrorAcceso] = useState('');
+  const [mensajeAviso, setMensajeAviso] = useState('');
+  const [intentoEnvio, setIntentoEnvio] = useState(false);
+  const [cargando, setCargando] = useState(false);
+
+  useEffect(() => {
+    if (route?.params?.accountCreated) {
+      setMensajeAviso(
+        'Cuenta creada correctamente. Ingrese su correo electrónico y contraseña para iniciar sesión'
+      );
+      navigation?.setParams?.({ accountCreated: false });
     }
+  }, [route?.params?.accountCreated, navigation]);
 
-    if (!password.trim()) {
-      setErrorMessage('El campo Contraseña es obligatorio.');
-      return;
-    }
+  if (!fuentesCargadas) {
+    return (
+      <View style={estilos.pantallaCarga}>
+        <ActivityIndicator size="large" color={COLORES.naranja} />
+      </View>
+    );
+  }
 
-    setLoading(true);
-
-    try {
-      let emailToLogin = username.trim();
-
-      // Buscar el correo real en Firestore si el usuario no ingresó un email directo
-      if (!username.includes('@')) {
-        const usersRef = collection(db, 'users');
-        const q = query(usersRef, where('username', '==', username.trim().toLowerCase()));
-        const querySnapshot = await getDocs(q);
-
-        if (!querySnapshot.empty) {
-          const userData = querySnapshot.docs[0].data();
-          emailToLogin = userData.email;
-        } else {
-          emailToLogin = `${username.trim()}@gmail.com`;
-        }
+  const validarCorreo = (valor, forzarError = false) => {
+    const correoLimpio = valor.trim();
+    if (!correoLimpio) {
+      if (forzarError || intentoEnvio) {
+        setErrorCorreo('Ingrese su correo electrónico');
       }
+      return false;
+    }
+    if (!REGEX_CORREO.test(correoLimpio)) {
+      if (forzarError || intentoEnvio) {
+        setErrorCorreo('Ingrese un correo electrónico válido');
+      }
+      return false;
+    }
+    setErrorCorreo('');
+    return true;
+  };
 
-      await signInWithEmailAndPassword(auth, emailToLogin, password);
-    } catch (error) {
-      setErrorMessage('Usuario o contraseña incorrectos.');
-    } finally {
-      setLoading(false);
+  const validarContrasena = (valor, forzarError = false) => {
+    if (!valor) {
+      if (forzarError || intentoEnvio) {
+        setErrorContrasena('Ingrese su contraseña');
+      }
+      return false;
+    }
+    setErrorContrasena('');
+    return true;
+  };
+
+  const cambiarCorreo = (texto) => {
+    setCorreo(texto);
+    setErrorAcceso('');
+    setMensajeAviso('');
+    if (intentoEnvio || errorCorreo) {
+      validarCorreo(texto, true);
     }
   };
 
-  const handleEnviarRecuperacion = () => {
-    if (!emailRecuperacion) {
-      Alert.alert('Error', 'Por favor, ingresá tu correo electrónico.');
+  const cambiarContrasena = (texto) => {
+    setContrasena(texto);
+    setErrorAcceso('');
+    setMensajeAviso('');
+    if (intentoEnvio || errorContrasena) {
+      validarContrasena(texto, true);
+    }
+  };
+
+  const iniciarSesion = async () => {
+    if (cargando) return;
+
+    setIntentoEnvio(true);
+    setErrorAcceso('');
+    setMensajeAviso('');
+
+    const correoLimpio = correo.trim();
+    const correoValido = validarCorreo(correoLimpio, true);
+    const contrasenaValida = validarContrasena(contrasena, true);
+
+    if (!correoValido || !contrasenaValida) {
       return;
     }
-    Alert.alert('Éxito', 'Se enviaron las instrucciones a tu correo electrónico.');
-    setModalVisible(false);
-    setEmailRecuperacion('');
+
+    if (!isFirebaseConfigured) {
+      setErrorAcceso('La configuración de Firebase no está disponible');
+      return;
+    }
+
+    setCargando(true);
+    try {
+      await signInWithEmailAndPassword(auth, correoLimpio, contrasena);
+
+      if (navigation?.replace) {
+        navigation.replace('Home');
+      }
+    } catch (err) {
+      const codigo = err?.code || '';
+      if (codigo === 'auth/network-request-failed') {
+        setErrorAcceso(
+          'No pudimos conectarnos. Verifique su conexión a internet e inténtelo nuevamente'
+        );
+      } else if (codigo === 'auth/too-many-requests') {
+        setErrorAcceso(
+          'Se realizaron demasiados intentos. Espere unos minutos antes de volver a intentarlo'
+        );
+      } else if (
+        codigo === 'auth/invalid-credential' ||
+        codigo === 'auth/user-not-found' ||
+        codigo === 'auth/wrong-password' ||
+        codigo === 'auth/invalid-email'
+      ) {
+        setErrorAcceso('No pudimos iniciar sesión. Verifique su correo electrónico y contraseña');
+      } else {
+        setErrorAcceso(
+          'El servicio no está disponible en este momento. Inténtelo nuevamente más tarde'
+        );
+      }
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  const irARecuperarContrasena = () => {
+    if (cargando) return;
+    if (navigation?.navigate) {
+      navigation.navigate('ForgotPassword');
+    }
+  };
+
+  const irACrearCuenta = () => {
+    if (cargando) return;
+    if (navigation?.navigate) {
+      navigation.navigate('SignUp');
+    }
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
-      <View style={styles.container}>
-        {/* ISOLOGOTIPO CIRCULAR CENTRADO */}
-        <View style={styles.header}>
-          <View style={styles.logoWrapper}>
-            <Image
-              source={require('../assets/logo.png')}
-              style={styles.logo}
-              resizeMode="cover"
-            />
-          </View>
-        </View>
-
-        {/* FORMULARIO */}
-        <View style={styles.form}>
-          <Text style={styles.title}>RT BURPEES GYM</Text>
-
-          <Text style={styles.label}>USUARIO</Text>
-          <View style={styles.inputWrapper}>
-            <View style={styles.iconContainer}>
-              <Text style={styles.iconText}>👤</Text>
-            </View>
-            <TextInput
-              style={styles.input}
-              placeholder="Ingresá tu usuario"
-              placeholderTextColor="#888"
-              value={username}
-              onChangeText={(text) => {
-                setUsername(text);
-                if (errorMessage) setErrorMessage('');
-              }}
-              autoCapitalize="none"
-            />
-          </View>
-
-          <Text style={styles.label}>CONTRASEÑA</Text>
-          <View style={styles.inputWrapper}>
-            <View style={styles.iconContainer}>
-              <Text style={styles.iconText}>🔒</Text>
-            </View>
-            <TextInput
-              style={styles.input}
-              placeholder="********"
-              placeholderTextColor="#888"
-              value={password}
-              onChangeText={(text) => {
-                setPassword(text);
-                if (errorMessage) setErrorMessage('');
-              }}
-              secureTextEntry={!showPassword}
-            />
-            <TouchableOpacity
-              style={styles.eyeIconContainer}
-              onPress={() => setShowPassword(!showPassword)}
-            >
-              <Text style={styles.eyeIconText}>{showPassword ? '🙈' : '👁️'}</Text>
-            </TouchableOpacity>
-          </View>
-
-          {errorMessage !== '' && (
-            <View style={styles.errorBox}>
-              <Text style={styles.errorText}>{errorMessage}</Text>
-            </View>
-          )}
-
-          <TouchableOpacity
-            style={styles.loginButton}
-            onPress={handleLogin}
-            disabled={loading}
-            activeOpacity={0.8}
-          >
-            {loading ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text style={styles.loginButtonText}>INICIAR SESIÓN</Text>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity onPress={() => setModalVisible(true)} style={styles.olvidasteContainer}>
-            <Text style={styles.olvidasteText}>¿Olvidaste tu contraseña?</Text>
-          </TouchableOpacity>
-
-          <View style={styles.divider} />
-
-          <Text style={styles.subtext}>¿No tenés cuenta?</Text>
-          <TouchableOpacity
-            style={styles.createAccountButton}
-            onPress={() => navigation.navigate('SignUp')}
-          >
-            <Text style={styles.createAccountText}>CREAR CUENTA</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* MODAL RECUPERAR CONTRASEÑA */}
-        <Modal
-          animationType="fade"
-          transparent={true}
-          visible={modalVisible}
-          onRequestClose={() => setModalVisible(false)}
+    <ImageBackground
+      source={require('../assets/Fondologin.png')}
+      style={estilos.imagenFondo}
+      resizeMode="cover"
+    >
+      <View style={estilos.capaClara}>
+        <KeyboardAvoidingView
+          style={estilos.contenedorTeclado}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>Recuperar Contraseña</Text>
-              <Text style={styles.modalDescription}>
-                Ingresá tu correo electrónico para enviarte las instrucciones de restablecimiento:
+          <ScrollView
+            contentContainerStyle={estilos.contenidoScroll}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={estilos.tarjeta}>
+              <View style={estilos.contenedorLogo}>
+                <Image
+                  source={require('../assets/logo.png')}
+                  style={estilos.logo}
+                  resizeMode="cover"
+                  accessibilityLabel="Logo de RT Burpers Gym"
+                />
+              </View>
+
+              <Text style={estilos.tituloMarca} accessibilityRole="header">
+                RT BURPERS GYM
+              </Text>
+              <Text style={estilos.subtitulo}>
+                Ingrese su correo electrónico y contraseña para continuar
               </Text>
 
-              <TextInput
-                style={styles.inputModal}
-                placeholder="correo@ejemplo.com"
-                placeholderTextColor="#888"
-                value={emailRecuperacion}
-                onChangeText={setEmailRecuperacion}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
+              {mensajeAviso ? (
+                <View style={estilos.cajaAviso} accessibilityLiveRegion="polite">
+                  <Ionicons
+                    name="checkmark-circle-outline"
+                    size={18}
+                    color={COLORES.blanco}
+                    style={estilos.iconoEstado}
+                  />
+                  <Text style={estilos.textoAviso}>{mensajeAviso}</Text>
+                </View>
+              ) : null}
 
-              <View style={styles.modalButtons}>
-                <TouchableOpacity
-                  style={[styles.buttonModal, styles.cancelButton]}
-                  onPress={() => setModalVisible(false)}
+              {/* Campo Correo electrónico */}
+              <View style={estilos.grupoCampo}>
+                <Text style={estilos.etiqueta}>CORREO ELECTRÓNICO</Text>
+                <View
+                  style={[
+                    estilos.contenedorInput,
+                    errorCorreo ? estilos.bordeErrorInput : null,
+                  ]}
                 >
-                  <Text style={styles.cancelText}>Cancelar</Text>
-                </TouchableOpacity>
+                  <Ionicons
+                    name="mail-outline"
+                    size={20}
+                    color={COLORES.maderaOscura}
+                    style={estilos.iconoIzquierdo}
+                  />
+                  <TextInput
+                    style={estilos.input}
+                    placeholder="usuario@correo.com"
+                    placeholderTextColor="#6E706D"
+                    value={correo}
+                    onChangeText={cambiarCorreo}
+                    onBlur={() => validarCorreo(correo, true)}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    autoComplete="email"
+                    returnKeyType="next"
+                    onSubmitEditing={() => refContrasena.current?.focus()}
+                    editable={!cargando}
+                    accessibilityLabel="Correo electrónico"
+                  />
+                </View>
+                {errorCorreo ? (
+                  <Text style={estilos.textoError} accessibilityLiveRegion="polite">
+                    {errorCorreo}
+                  </Text>
+                ) : null}
+              </View>
 
-                <TouchableOpacity
-                  style={[styles.buttonModal, styles.sendButton]}
-                  onPress={handleEnviarRecuperacion}
+              {/* Campo Contraseña */}
+              <View style={estilos.grupoCampo}>
+                <Text style={estilos.etiqueta}>CONTRASEÑA</Text>
+                <View
+                  style={[
+                    estilos.contenedorInput,
+                    errorContrasena ? estilos.bordeErrorInput : null,
+                  ]}
                 >
-                  <Text style={styles.sendText}>Enviar</Text>
-                </TouchableOpacity>
+                  <Ionicons
+                    name="lock-closed-outline"
+                    size={20}
+                    color={COLORES.maderaOscura}
+                    style={estilos.iconoIzquierdo}
+                  />
+                  <TextInput
+                    ref={refContrasena}
+                    style={estilos.input}
+                    placeholder="Ingresá tu contraseña"
+                    placeholderTextColor="#6E706D"
+                    value={contrasena}
+                    onChangeText={cambiarContrasena}
+                    onBlur={() => validarContrasena(contrasena, true)}
+                    secureTextEntry={!mostrarContrasena}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    autoComplete="current-password"
+                    returnKeyType="done"
+                    onSubmitEditing={iniciarSesion}
+                    editable={!cargando}
+                    accessibilityLabel="Contraseña"
+                  />
+                  <Pressable
+                    onPress={() => setMostrarContrasena((prev) => !prev)}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    style={estilos.botonOjo}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      mostrarContrasena ? 'Ocultar contraseña' : 'Mostrar contraseña'
+                    }
+                  >
+                    <Ionicons
+                      name={mostrarContrasena ? 'eye-off-outline' : 'eye-outline'}
+                      size={22}
+                      color={COLORES.maderaOscura}
+                    />
+                  </Pressable>
+                </View>
+                {errorContrasena ? (
+                  <Text style={estilos.textoError} accessibilityLiveRegion="polite">
+                    {errorContrasena}
+                  </Text>
+                ) : null}
+              </View>
+
+              {/* Error general de autenticación / conexión */}
+              {errorAcceso ? (
+                <View style={estilos.cajaErrorAcceso} accessibilityLiveRegion="polite">
+                  <Ionicons
+                    name="alert-circle-outline"
+                    size={18}
+                    color={COLORES.blanco}
+                    style={estilos.iconoEstado}
+                  />
+                  <Text style={estilos.textoErrorAcceso}>{errorAcceso}</Text>
+                </View>
+              ) : null}
+
+              {/* Botón principal Iniciar sesión */}
+              <Pressable
+                style={({ pressed }) => [
+                  estilos.botonPrincipal,
+                  pressed && !cargando && estilos.botonPrincipalPresionado,
+                  cargando && estilos.botonDeshabilitado,
+                ]}
+                onPress={iniciarSesion}
+                disabled={cargando}
+                android_ripple={{ color: 'rgba(255, 255, 255, 0.25)' }}
+                accessibilityRole="button"
+                accessibilityLabel="Iniciar sesión"
+              >
+                {cargando ? (
+                  <View style={estilos.filaCarga}>
+                    <ActivityIndicator size="small" color={COLORES.blanco} />
+                    <Text style={estilos.textoBotonPrincipal}>INICIANDO SESIÓN...</Text>
+                  </View>
+                ) : (
+                  <Text style={estilos.textoBotonPrincipal}>INICIAR SESIÓN</Text>
+                )}
+              </Pressable>
+
+              {/* Enlace recuperar contraseña */}
+              <Pressable
+                onPress={irARecuperarContrasena}
+                disabled={cargando}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={estilos.botonRecuperarContrasena}
+                accessibilityRole="link"
+              >
+                <Text style={estilos.textoRecuperarContrasena}>
+                  ¿Olvidaste tu contraseña?
+                </Text>
+              </Pressable>
+
+              <View style={estilos.separador} />
+
+              {/* Registro de nuevos usuarios */}
+              <View style={estilos.seccionRegistro}>
+                <Text style={estilos.textoSinCuenta}>¿No tenés cuenta?</Text>
+                <Pressable
+                  style={({ pressed }) => [
+                    estilos.botonSecundario,
+                    pressed && !cargando && estilos.botonSecundarioPresionado,
+                    cargando && estilos.botonDeshabilitado,
+                  ]}
+                  onPress={irACrearCuenta}
+                  disabled={cargando}
+                  android_ripple={{ color: 'rgba(253, 184, 19, 0.2)' }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Registrate"
+                >
+                  <Text style={estilos.textoBotonSecundario}>CREAR CUENTA</Text>
+                </Pressable>
               </View>
             </View>
-          </View>
-        </Modal>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </View>
-    </ScrollView>
+    </ImageBackground>
   );
 }
 
-const styles = StyleSheet.create({
-  scrollContainer: {
-    flexGrow: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  container: {
+const estilos = StyleSheet.create({
+  pantallaCarga: {
     flex: 1,
+    backgroundColor: COLORES.blanco,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
   },
-  header: {
-    alignItems: 'center',
+  imagenFondo: {
+    flex: 1,
+    backgroundColor: COLORES.blanco,
+  },
+  capaClara: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.16)',
+  },
+  contenedorTeclado: {
+    flex: 1,
+  },
+  contenidoScroll: {
+    flexGrow: 1,
     justifyContent: 'center',
-    marginBottom: 20,
-    marginTop: 10,
+    paddingHorizontal: 22,
+    paddingVertical: 32,
   },
-  logoWrapper: {
-    width: 170,
-    height: 170,
-    borderRadius: 85,
+  tarjeta: {
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    borderRadius: 26,
+    borderWidth: 2,
+    borderColor: COLORES.grisMedio,
+    paddingHorizontal: 22,
+    paddingVertical: 26,
+  },
+  contenedorLogo: {
+    alignSelf: 'center',
+    width: 114,
+    height: 114,
+    borderRadius: 57,
     overflow: 'hidden',
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    elevation: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
+    borderWidth: 3,
+    borderColor: COLORES.amarilloDorado,
+    backgroundColor: COLORES.negro,
+    marginBottom: 14,
   },
   logo: {
     width: '100%',
     height: '100%',
   },
-  form: {
-    width: '100%',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    borderWidth: 1.5,
-    borderColor: '#F07D00',
-    paddingHorizontal: 20,
-    paddingVertical: 24,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  title: {
+  tituloMarca: {
+    fontFamily: 'Montserrat_800ExtraBold',
     fontSize: 22,
-    fontWeight: '900',
-    color: '#000000',
+    color: COLORES.negro,
     textAlign: 'center',
-    letterSpacing: 1,
-    marginBottom: 15,
+    letterSpacing: 0.6,
   },
-  label: {
-    alignSelf: 'flex-start',
-    fontSize: 11,
-    fontWeight: 'bold',
-    color: '#000000',
-    marginBottom: 6,
-    marginTop: 6,
+  subtitulo: {
+    fontFamily: 'Montserrat_600SemiBold',
+    fontSize: 13,
+    color: COLORES.maderaOscura,
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: 18,
+    lineHeight: 18,
   },
-  inputWrapper: {
+  cajaAviso: {
     flexDirection: 'row',
     alignItems: 'center',
-    width: '100%',
-    backgroundColor: '#F5F5F5',
+    backgroundColor: COLORES.maderaOscura,
     borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: '#F07D00',
-    marginBottom: 12,
-    overflow: 'hidden',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 14,
   },
-  iconContainer: {
-    backgroundColor: '#7A7A7A',
-    width: 44,
-    height: 44,
-    justifyContent: 'center',
+  textoAviso: {
+    flex: 1,
+    fontFamily: 'Poppins_500Medium',
+    fontSize: 12.5,
+    color: COLORES.blanco,
+  },
+  grupoCampo: {
+    marginBottom: 14,
+  },
+  etiqueta: {
+    fontFamily: 'Montserrat_700Bold',
+    fontSize: 13,
+    color: COLORES.negro,
+    marginBottom: 6,
+    letterSpacing: 0.4,
+  },
+  contenedorInput: {
+    flexDirection: 'row',
     alignItems: 'center',
+    minHeight: 50,
+    backgroundColor: COLORES.blanco,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: COLORES.grisMedio,
+    paddingHorizontal: 12,
   },
-  iconText: {
-    fontSize: 16,
-    color: '#FFFFFF',
+  bordeErrorInput: {
+    borderColor: '#991B1B',
+    backgroundColor: '#FEF2F2',
+  },
+  iconoIzquierdo: {
+    marginRight: 8,
   },
   input: {
     flex: 1,
-    paddingHorizontal: 12,
+    fontFamily: 'Poppins_400Regular',
+    fontSize: 15,
+    color: COLORES.negro,
     paddingVertical: 10,
-    fontSize: 14,
-    color: '#333333',
   },
-  eyeIconContainer: {
-    paddingHorizontal: 12,
+  botonOjo: {
+    minWidth: 36,
+    minHeight: 36,
     justifyContent: 'center',
     alignItems: 'center',
+    marginLeft: 6,
   },
-  eyeIconText: {
-    fontSize: 16,
+  textoError: {
+    marginTop: 5,
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 12.5,
+    color: '#991B1B',
   },
-  errorBox: {
-    width: '100%',
-    backgroundColor: '#FDE8E8',
-    borderColor: '#F8B4B4',
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginVertical: 8,
-  },
-  errorText: {
-    color: '#E02424',
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  loginButton: {
-    backgroundColor: '#FF9800',
-    width: '100%',
-    paddingVertical: 13,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 10,
-  },
-  loginButtonText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 14,
-    letterSpacing: 0.5,
-  },
-  olvidasteContainer: {
-    marginVertical: 6,
-  },
-  olvidasteText: {
-    color: '#F07D00',
-    fontWeight: '600',
-    fontSize: 13,
-  },
-  divider: {
-    width: '100%',
-    height: 1,
-    backgroundColor: '#EAEAEA',
-    marginVertical: 14,
-  },
-  subtext: {
-    fontSize: 12,
-    color: '#666666',
-    marginBottom: 10,
-  },
-  createAccountButton: {
-    backgroundColor: '#3E322B',
-    width: '100%',
-    paddingVertical: 13,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  createAccountText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 14,
-    letterSpacing: 0.5,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalCard: {
-    width: '85%',
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 24,
-    alignItems: 'center',
-    elevation: 5,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 8,
-    color: '#111',
-  },
-  modalDescription: {
-    fontSize: 13,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  inputModal: {
-    width: '100%',
-    height: 48,
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    marginBottom: 20,
-    backgroundColor: '#fafafa',
-  },
-  modalButtons: {
+  cajaErrorAcceso: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
+    alignItems: 'center',
+    backgroundColor: '#991B1B',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
   },
-  buttonModal: {
+  iconoEstado: {
+    marginRight: 8,
+  },
+  textoErrorAcceso: {
     flex: 1,
-    height: 42,
-    borderRadius: 8,
+    fontFamily: 'Poppins_500Medium',
+    color: COLORES.blanco,
+    fontSize: 13,
+  },
+  botonPrincipal: {
+    minHeight: 52,
+    backgroundColor: COLORES.naranja,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
-    marginHorizontal: 4,
+    marginTop: 6,
+    paddingHorizontal: 16,
   },
-  cancelButton: {
-    backgroundColor: '#eee',
+  botonPrincipalPresionado: {
+    opacity: 0.85,
   },
-  cancelText: {
-    color: '#333',
-    fontWeight: '600',
+  textoBotonPrincipal: {
+    fontFamily: 'Montserrat_800ExtraBold',
+    color: COLORES.blanco,
+    fontSize: 15,
+    letterSpacing: 0.6,
   },
-  sendButton: {
-    backgroundColor: '#FF9800',
+  filaCarga: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
-  sendText: {
-    color: '#fff',
-    fontWeight: '600',
+  botonRecuperarContrasena: {
+    alignSelf: 'center',
+    marginTop: 14,
+    minHeight: 38,
+    justifyContent: 'center',
+  },
+  textoRecuperarContrasena: {
+    fontFamily: 'Poppins_600SemiBold',
+    color: COLORES.maderaOscura,
+    fontSize: 15.5,
+    textDecorationLine: 'underline',
+  },
+  separador: {
+    height: 1.5,
+    backgroundColor: COLORES.grisMedio,
+    marginVertical: 16,
+  },
+  seccionRegistro: {
+    alignItems: 'center',
+  },
+  textoSinCuenta: {
+    fontFamily: 'Poppins_600SemiBold',
+    color: COLORES.negro,
+    fontSize: 15.5,
+    marginBottom: 10,
+  },
+  botonSecundario: {
+    width: '100%',
+    minHeight: 50,
+    backgroundColor: COLORES.maderaOscura,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  botonSecundarioPresionado: {
+    opacity: 0.85,
+  },
+  textoBotonSecundario: {
+    fontFamily: 'Montserrat_800ExtraBold',
+    color: COLORES.blanco,
+    fontSize: 14.5,
+    letterSpacing: 0.6,
+  },
+  botonDeshabilitado: {
+    opacity: 0.65,
   },
 });

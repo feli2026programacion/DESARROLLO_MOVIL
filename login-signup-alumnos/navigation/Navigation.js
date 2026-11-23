@@ -1,78 +1,39 @@
-// navigation/Navigation.js
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
-import { createStackNavigator } from '@react-navigation/stack';
-import { onAuthStateChanged } from 'firebase/auth';
-import { auth, isFirebaseConfigured } from '../src/config/firebaseConfig';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import Login from '../screens/Login';
 import SignUp from '../screens/SignUp';
+import TerminosCodicones from '../screens/TerminosCodicones';
 import Home from '../screens/Home';
+import Perfiles from '../screens/Perfiles';
+import Planes from '../screens/Planes';
 import Clientes from '../screens/Clientes';
-import Productos from '../screens/Productos';
+import Cuotas from '../screens/Cuotas';
+import Asistencias from '../screens/Asistencias';
 
-const Stack = createStackNavigator();
+const PilaNavegacion = createNativeStackNavigator();
 
 export default function Navigation() {
-  const [user, setUser] = useState(undefined);
-
-  useEffect(() => {
-    if (!auth) return;
-    return onAuthStateChanged(auth, setUser);
-  }, []);
-
-  if (!isFirebaseConfigured) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.message}>
-          Falta configurar Firebase. Copia .env.example como .env y completa los datos de tu proyecto.
-        </Text>
-      </View>
-    );
-  }
-
-  if (user === undefined) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" />
-      </View>
-    );
-  }
-
   return (
     <NavigationContainer>
-      <Stack.Navigator>
-        {user ? (
-          <>
-            <Stack.Screen 
-              name="Home" 
-              component={Home} 
-              options={{ headerShown: false }} 
-            />
-            <Stack.Screen 
-              name="Clientes" 
-              component={Clientes} 
-              options={{ title: 'Clientes', headerStyle: { backgroundColor: '#1E1E1E' }, headerTintColor: '#FF7A00' }} 
-            />
-            <Stack.Screen 
-              name="Productos" 
-              component={Productos} 
-              options={{ title: 'Productos / Stock', headerStyle: { backgroundColor: '#1E1E1E' }, headerTintColor: '#FF7A00' }} 
-            />
-          </>
-        ) : (
-          <>
-            <Stack.Screen name="Login" component={Login} options={{ title: 'Iniciar sesión' }} />
-            <Stack.Screen name="SignUp" component={SignUp} options={{ title: 'Registro' }} />
-          </>
-        )}
-      </Stack.Navigator>
+      <PilaNavegacion.Navigator
+        initialRouteName="Login"
+        screenOptions={{
+          headerShown: false,
+          animation: 'slide_from_right',
+        }}
+      >
+        <PilaNavegacion.Screen name="Login" component={Login} />
+        <PilaNavegacion.Screen name="SignUp" component={SignUp} />
+        <PilaNavegacion.Screen name="TerminosCodicones" component={TerminosCodicones} />
+        <PilaNavegacion.Screen name="Home" component={Home} />
+        <PilaNavegacion.Screen name="Perfiles" component={Perfiles} />
+        <PilaNavegacion.Screen name="Planes" component={Planes} />
+        <PilaNavegacion.Screen name="Clientes" component={Clientes} />
+        <PilaNavegacion.Screen name="Cuotas" component={Cuotas} />
+        <PilaNavegacion.Screen name="Asistencias" component={Asistencias} />
+      </PilaNavegacion.Navigator>
     </NavigationContainer>
   );
 }
-
-const styles = StyleSheet.create({
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-  message: { textAlign: 'center', fontSize: 16 },
-});
