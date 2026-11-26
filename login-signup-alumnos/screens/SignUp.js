@@ -26,6 +26,7 @@ import {
 } from '@expo-google-fonts/poppins';
 import {
   createUserWithEmailAndPassword,
+  sendEmailVerification,
   signOut,
 } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
@@ -234,7 +235,7 @@ export default function SignUp({ navigation }) {
 
     const nombreLimpio = nombre.trim();
     const apellidoLimpio = apellido.trim();
-    const correoLimpio = correo.trim();
+    const correoLimpio = correo.trim().toLowerCase();
 
     const nombreValido = validarNombre(nombreLimpio, true);
     const apellidoValido = validarApellido(apellidoLimpio, true);
@@ -264,6 +265,8 @@ export default function SignUp({ navigation }) {
 
     setCargando(true);
     try {
+      auth.languageCode = 'es';
+
       const credencialUsuario = await createUserWithEmailAndPassword(
         auth,
         correoLimpio,
@@ -275,34 +278,33 @@ export default function SignUp({ navigation }) {
         uid: usuarioCreado.uid,
         nombre: nombreLimpio,
         apellido: apellidoLimpio,
-        correo: correoLimpio.toLowerCase(),
+        correo: correoLimpio,
         rol: 'Administrador',
+        emailVerificado: false,
         fechaCreacion: new Date().toISOString(),
       });
 
+      await sendEmailVerification(usuarioCreado);
       await signOut(auth);
 
       if (navigation?.replace) {
-        navigation.replace('Login', { accountCreated: true });
+        navigation.replace('Login', {
+          pendingVerification: true,
+          email: correoLimpio,
+        });
       }
     } catch (err) {
-      const codigo = err?.code || '';
-      if (codigo === 'auth/email-already-in-use') {
+      const codigoError = err?.code || '';
+      if (codigoError === 'auth/email-already-in-use') {
         setErrorCorreo('Ya existe una cuenta registrada con este correo electrónico');
         setErrorGeneral('Verifique los datos ingresados');
-      } else if (codigo === 'auth/invalid-email') {
-        setErrorCorreo('Ingrese un correo electrónico válido');
-      } else if (codigo === 'auth/weak-password') {
-        setErrorContrasena(
-          'La contraseña debe tener al menos 8 caracteres, una mayúscula, un número y un carácter especial'
-        );
-      } else if (codigo === 'auth/network-request-failed') {
+      } else if (codigoError === 'auth/network-request-failed') {
         setErrorGeneral(
-          'No pudimos conectarnos. Verifique su conexión a internet e inténtelo nuevamente'
+          'Sin conexión a internet. Verifique su conexión e intente nuevamente'
         );
       } else {
         setErrorGeneral(
-          'No pudimos crear la cuenta en este momento. Inténtelo nuevamente más tarde'
+          err?.message || 'No se pudo crear la cuenta. Intente nuevamente'
         );
       }
     } finally {
@@ -341,7 +343,7 @@ export default function SignUp({ navigation }) {
                 CREAR CUENTA
               </Text>
               <Text style={estilos.subtitulo}>
-                Complete sus datos para registrarse en RT Burpers Gym
+                Complete sus datos para registrarse y verificar su correo
               </Text>
 
               {/* Nombre */}
@@ -1041,6 +1043,6 @@ const estilos = StyleSheet.create({
     textDecorationLine: 'underline',
   },
   botonDeshabilitado: {
-    opacity: 0.65,
+    opacity: 0.6,
   },
 });

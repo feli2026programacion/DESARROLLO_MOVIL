@@ -38,6 +38,7 @@ import {
   where,
 } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../src/config/firebaseConfig';
+import MenuHamburguesa from './MenuHamburguesa';
 
 const COLORES = {
   blanco: '#FFFFFF',
@@ -536,34 +537,32 @@ export default function Clientes({ navigation }) {
     <View style={estilos.contenedorPrincipal}>
       {/* Encabezado superior */}
       <View style={estilos.barraSuperior}>
-        <Pressable
-          onPress={() => navigation.goBack()}
-          disabled={guardando}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          style={({ pressed }) => [
-            estilos.botonVolver,
-            pressed && estilos.botonPresionado,
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel="Volver"
-        >
-          <Ionicons name="arrow-back" size={24} color={COLORES.negro} />
-        </Pressable>
+        <View style={estilos.huecoMenuHamburguesa}>
+          <MenuHamburguesa
+            navigation={navigation}
+            rutaActual="Clientes"
+            onSeccionNoHabilitada={(mensaje) => setMensajeAviso(mensaje)}
+          />
+        </View>
 
-        <Text style={estilos.tituloEncabezado}>CLIENTES</Text>
+        <Text style={estilos.tituloEncabezado} numberOfLines={1}>
+          CLIENTES
+        </Text>
 
         <Pressable
           onPress={abrirModalCrear}
           disabled={guardando}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           style={({ pressed }) => [
-            estilos.botonAgregarSuperior,
+            estilos.botonAccionSuperior,
             pressed && estilos.botonPresionado,
           ]}
           accessibilityRole="button"
-          accessibilityLabel="Nuevo cliente"
+          accessibilityLabel="Registrar cliente"
         >
-          <Ionicons name="add" size={24} color={COLORES.blanco} />
+          <Text style={estilos.textoBotonSuperior} numberOfLines={1}>
+            Registrar cliente
+          </Text>
         </Pressable>
       </View>
 
@@ -640,7 +639,7 @@ export default function Clientes({ navigation }) {
             <Text style={estilos.textoVacio}>
               {textoBusqueda
                 ? 'No se encontraron clientes con ese DNI, nombre o apellido.'
-                : 'Agregá un cliente con el botón + para verlo en la tabla.'}
+                : 'Tocá "Registrar cliente" para cargar el primero y verlo en la tabla.'}
             </Text>
             {!textoBusqueda ? (
               <Pressable
@@ -650,7 +649,7 @@ export default function Clientes({ navigation }) {
                 ]}
                 onPress={abrirModalCrear}
               >
-                <Text style={estilos.textoBotonBlanco}>AGREGAR CLIENTE</Text>
+                <Text style={estilos.textoBotonBlanco}>REGISTRAR CLIENTE</Text>
               </Pressable>
             ) : null}
           </View>
@@ -982,7 +981,7 @@ export default function Clientes({ navigation }) {
           <View style={estilos.tarjetaModal}>
             <View style={estilos.cabeceraModal}>
               <Text style={estilos.tituloModal}>
-                {clienteEditando ? 'EDITAR CLIENTE' : 'NUEVO CLIENTE'}
+                {clienteEditando ? 'EDITAR CLIENTE' : 'REGISTRAR CLIENTE'}
               </Text>
               <Pressable
                 onPress={cerrarModalFormulario}
@@ -1223,29 +1222,33 @@ const estilos = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLORES.grisMedio,
   },
-  botonVolver: {
+  huecoMenuHamburguesa: {
     width: 42,
     height: 42,
-    borderRadius: 12,
-    backgroundColor: COLORES.blanco,
-    borderWidth: 1.5,
-    borderColor: COLORES.grisMedio,
     justifyContent: 'center',
     alignItems: 'center',
   },
   tituloEncabezado: {
+    flex: 1,
+    textAlign: 'center',
     fontFamily: 'Montserrat_800ExtraBold',
-    fontSize: 16,
+    fontSize: 14.5,
     color: COLORES.negro,
-    letterSpacing: 0.6,
+    letterSpacing: 0.4,
+    marginHorizontal: 6,
   },
-  botonAgregarSuperior: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
+  botonAccionSuperior: {
+    minHeight: 38,
+    paddingHorizontal: 11,
+    borderRadius: 11,
     backgroundColor: COLORES.naranja,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  textoBotonSuperior: {
+    fontFamily: 'Montserrat_700Bold',
+    fontSize: 11.5,
+    color: COLORES.blanco,
   },
   contenidoCuerpo: {
     flex: 1,

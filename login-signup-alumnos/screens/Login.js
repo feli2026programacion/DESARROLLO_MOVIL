@@ -24,8 +24,13 @@ import {
   Poppins_500Medium,
   Poppins_600SemiBold,
 } from '@expo-google-fonts/poppins';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth, isFirebaseConfigured } from '../src/config/firebaseConfig';
+import {
+  sendEmailVerification,
+  signInWithEmailAndPassword,
+  signOut,
+} from 'firebase/auth';
+import { doc, setDoc } from 'firebase/firestore';
+import { auth, db, isFirebaseConfigured } from '../src/config/firebaseConfig';
 
 const COLORES = {
   blanco: '#FFFFFF',
@@ -34,6 +39,8 @@ const COLORES = {
   amarilloDorado: '#FDB813',
   maderaOscura: '#3D2B1F',
   grisMedio: '#BDBFBC',
+  celesteTransparente: 'rgba(219, 234, 254, 0.78)',
+  bordeCeleste: 'rgba(125, 211, 252, 0.9)',
 };
 
 const REGEX_CORREO = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
@@ -61,14 +68,47 @@ export default function Login({ navigation, route }) {
   const [intentoEnvio, setIntentoEnvio] = useState(false);
   const [cargando, setCargando] = useState(false);
 
+  const [mostrarReenviar, setMostrarReenviar] = useState(false);
+  const [reenviandoCorreo, setReenviandoCorreo] = useState(false);
+  const [segundosCooldown, setSegundosCooldown] = useState(0);
+
   useEffect(() => {
-    if (route?.params?.accountCreated) {
+    if (route?.params?.pendingVerification) {
+      if (route?.params?.email) {
+        setCorreo(String(route.params.email));
+      }
       setMensajeAviso(
-        'Cuenta creada correctamente. Ingrese su correo electrónico y contraseña para iniciar sesión'
+        'Cuenta creada. Te enviamos un enlace de verificación a tu correo (revisá también Spam). Verificalo antes de iniciar sesión.'
       );
-      navigation?.setParams?.({ accountCreated: false });
+      setMostrarReenviar(true);
+      navigation?.setParams?.({
+        pendingVerification: false,
+      });
+    } else if (route?.params?.accountCreated) {
+      if (route?.params?.email) {
+        setCorreo(String(route.params.email));
+      }
+      setMensajeAviso(
+        'Cuenta creada. Ingresá tu correo y contraseña para iniciar sesión.'
+      );
+      navigation?.setParams?.({
+        accountCreated: false,
+      });
     }
-  }, [route?.params?.accountCreated, navigation]);
+  }, [
+    route?.params?.pendingVerification,
+    route?.params?.accountCreated,
+    route?.params?.email,
+    navigation,
+  ]);
+
+  useEffect(() => {
+    if (segundosCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setSegundosCooldown((prev) => (prev > 1 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [segundosCooldown]);
 
   if (!fuentesCargadas) {
     return (
@@ -125,14 +165,94 @@ export default function Login({ navigation, route }) {
     }
   };
 
+  const reenviarVerificacion = async () => {
+    if (reenviandoCorreo || segundosCooldown > 0) return;
+
+    const correoLimpio = correo.trim().toLowerCase();
+    const correoValido = validarCorreo(correoLimpio, true);
+    const contrasenaValida = validarContrasena(contrasena, true);
+
+    if (!correoValido || !contrasenaValida) {
+      setErrorAcceso(
+        'Completá tu correo y contraseña para poder reenviar el enlace de verificación.'
+      );
+      return;
+    }
+
+    if (!isFirebaseConfigured) {
+      setErrorAcceso('La configuración de Firebase no está disponible');
+      return;
+    }
+
+    setReenviandoCorreo(true);
+    setErrorAcceso('');
+    setMensajeAviso('');
+
+    try {
+      auth.languageCode = 'es';
+      const credencial = await signInWithEmailAndPassword(
+        auth,
+        correoLimpio,
+        contrasena
+      );
+      const usuarioActual = credencial.user;
+      await usuarioActual.reload();
+
+      if (usuarioActual.emailVerified) {
+        await setDoc(
+          doc(db, 'usuarios', usuarioActual.uid),
+          {
+            emailVerificado: true,
+            ultimoAcceso: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+        setMostrarReenviar(false);
+        if (navigation?.replace) {
+          navigation.replace('Home');
+        }
+        return;
+      }
+
+      await sendEmailVerification(usuarioActual);
+      await signOut(auth);
+      setSegundosCooldown(60);
+      setMensajeAviso(
+        `Se reenvió el correo de verificación a ${correoLimpio}. Revisá tu bandeja de entrada y Spam.`
+      );
+    } catch (err) {
+      const codigo = err?.code || '';
+      if (codigo === 'auth/too-many-requests') {
+        setErrorAcceso(
+          'Se enviaron demasiados correos recientemente. Esperá unos minutos antes de reintentar.'
+        );
+      } else if (
+        codigo === 'auth/invalid-credential' ||
+        codigo === 'auth/user-not-found' ||
+        codigo === 'auth/wrong-password' ||
+        codigo === 'auth/invalid-email'
+      ) {
+        setErrorAcceso(
+          'Correo o contraseña incorrectos. Verificalos antes de reenviar el enlace.'
+        );
+      } else {
+        setErrorAcceso(
+          'No se pudo reenviar el correo de verificación. Intentá nuevamente.'
+        );
+      }
+    } finally {
+      setReenviandoCorreo(false);
+    }
+  };
+
   const iniciarSesion = async () => {
-    if (cargando) return;
+    if (cargando || reenviandoCorreo) return;
 
     setIntentoEnvio(true);
     setErrorAcceso('');
     setMensajeAviso('');
 
-    const correoLimpio = correo.trim();
+    const correoLimpio = correo.trim().toLowerCase();
     const correoValido = validarCorreo(correoLimpio, true);
     const contrasenaValida = validarContrasena(contrasena, true);
 
@@ -147,7 +267,33 @@ export default function Login({ navigation, route }) {
 
     setCargando(true);
     try {
-      await signInWithEmailAndPassword(auth, correoLimpio, contrasena);
+      const credencial = await signInWithEmailAndPassword(
+        auth,
+        correoLimpio,
+        contrasena
+      );
+      const usuarioActual = credencial.user;
+      await usuarioActual.reload();
+
+      if (!usuarioActual.emailVerified) {
+        await signOut(auth);
+        setMostrarReenviar(true);
+        setErrorAcceso(
+          'Tu correo electrónico aún no está verificado. Tocá el enlace del correo enviado por Firebase y volvé a intentarlo.'
+        );
+        return;
+      }
+
+      setMostrarReenviar(false);
+
+      await setDoc(
+        doc(db, 'usuarios', usuarioActual.uid),
+        {
+          emailVerificado: true,
+          ultimoAcceso: new Date().toISOString(),
+        },
+        { merge: true }
+      );
 
       if (navigation?.replace) {
         navigation.replace('Home');
@@ -180,18 +326,20 @@ export default function Login({ navigation, route }) {
   };
 
   const irARecuperarContrasena = () => {
-    if (cargando) return;
+    if (cargando || reenviandoCorreo) return;
     if (navigation?.navigate) {
-      navigation.navigate('ForgotPassword');
+      navigation.navigate('OlvideContraseña');
     }
   };
 
   const irACrearCuenta = () => {
-    if (cargando) return;
+    if (cargando || reenviandoCorreo) return;
     if (navigation?.navigate) {
       navigation.navigate('SignUp');
     }
   };
+
+  const bloqueado = cargando || reenviandoCorreo;
 
   return (
     <ImageBackground
@@ -222,14 +370,11 @@ export default function Login({ navigation, route }) {
               <Text style={estilos.tituloMarca} accessibilityRole="header">
                 RT BURPERS GYM
               </Text>
-              <Text style={estilos.subtitulo}>
-                Ingrese su correo electrónico y contraseña para continuar
-              </Text>
 
               {mensajeAviso ? (
                 <View style={estilos.cajaAviso} accessibilityLiveRegion="polite">
                   <Ionicons
-                    name="checkmark-circle-outline"
+                    name="mail-unread-outline"
                     size={18}
                     color={COLORES.blanco}
                     style={estilos.iconoEstado}
@@ -249,7 +394,7 @@ export default function Login({ navigation, route }) {
                 >
                   <Ionicons
                     name="mail-outline"
-                    size={20}
+                    size={19}
                     color={COLORES.maderaOscura}
                     style={estilos.iconoIzquierdo}
                   />
@@ -266,7 +411,7 @@ export default function Login({ navigation, route }) {
                     autoComplete="email"
                     returnKeyType="next"
                     onSubmitEditing={() => refContrasena.current?.focus()}
-                    editable={!cargando}
+                    editable={!bloqueado}
                     accessibilityLabel="Correo electrónico"
                   />
                 </View>
@@ -288,7 +433,7 @@ export default function Login({ navigation, route }) {
                 >
                   <Ionicons
                     name="lock-closed-outline"
-                    size={20}
+                    size={19}
                     color={COLORES.maderaOscura}
                     style={estilos.iconoIzquierdo}
                   />
@@ -306,7 +451,7 @@ export default function Login({ navigation, route }) {
                     autoComplete="current-password"
                     returnKeyType="done"
                     onSubmitEditing={iniciarSesion}
-                    editable={!cargando}
+                    editable={!bloqueado}
                     accessibilityLabel="Contraseña"
                   />
                   <Pressable
@@ -320,7 +465,7 @@ export default function Login({ navigation, route }) {
                   >
                     <Ionicons
                       name={mostrarContrasena ? 'eye-off-outline' : 'eye-outline'}
-                      size={22}
+                      size={20}
                       color={COLORES.maderaOscura}
                     />
                   </Pressable>
@@ -332,7 +477,7 @@ export default function Login({ navigation, route }) {
                 ) : null}
               </View>
 
-              {/* Error general de autenticación / conexión */}
+              {/* Error general de autenticación / conexión / verificación */}
               {errorAcceso ? (
                 <View style={estilos.cajaErrorAcceso} accessibilityLiveRegion="polite">
                   <Ionicons
@@ -345,15 +490,39 @@ export default function Login({ navigation, route }) {
                 </View>
               ) : null}
 
+              {mostrarReenviar ? (
+                <Pressable
+                  onPress={reenviarVerificacion}
+                  disabled={bloqueado || segundosCooldown > 0}
+                  style={({ pressed }) => [
+                    estilos.botonReenviar,
+                    pressed && !bloqueado && estilos.botonPresionado,
+                    (bloqueado || segundosCooldown > 0) && estilos.botonDeshabilitado,
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Reenviar correo de verificación"
+                >
+                  {reenviandoCorreo ? (
+                    <ActivityIndicator size="small" color={COLORES.maderaOscura} />
+                  ) : (
+                    <Text style={estilos.textoBotonReenviar}>
+                      {segundosCooldown > 0
+                        ? `Reenviar verificación (${segundosCooldown}s)`
+                        : 'Reenviar correo de verificación'}
+                    </Text>
+                  )}
+                </Pressable>
+              ) : null}
+
               {/* Botón principal Iniciar sesión */}
               <Pressable
                 style={({ pressed }) => [
                   estilos.botonPrincipal,
-                  pressed && !cargando && estilos.botonPrincipalPresionado,
-                  cargando && estilos.botonDeshabilitado,
+                  pressed && !bloqueado && estilos.botonPrincipalPresionado,
+                  bloqueado && estilos.botonDeshabilitado,
                 ]}
                 onPress={iniciarSesion}
-                disabled={cargando}
+                disabled={bloqueado}
                 android_ripple={{ color: 'rgba(255, 255, 255, 0.25)' }}
                 accessibilityRole="button"
                 accessibilityLabel="Iniciar sesión"
@@ -371,7 +540,7 @@ export default function Login({ navigation, route }) {
               {/* Enlace recuperar contraseña */}
               <Pressable
                 onPress={irARecuperarContrasena}
-                disabled={cargando}
+                disabled={bloqueado}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 style={estilos.botonRecuperarContrasena}
                 accessibilityRole="link"
@@ -389,11 +558,11 @@ export default function Login({ navigation, route }) {
                 <Pressable
                   style={({ pressed }) => [
                     estilos.botonSecundario,
-                    pressed && !cargando && estilos.botonSecundarioPresionado,
-                    cargando && estilos.botonDeshabilitado,
+                    pressed && !bloqueado && estilos.botonSecundarioPresionado,
+                    bloqueado && estilos.botonDeshabilitado,
                   ]}
                   onPress={irACrearCuenta}
-                  disabled={cargando}
+                  disabled={bloqueado}
                   android_ripple={{ color: 'rgba(253, 184, 19, 0.2)' }}
                   accessibilityRole="button"
                   accessibilityLabel="Registrate"
@@ -422,7 +591,7 @@ const estilos = StyleSheet.create({
   },
   capaClara: {
     flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.16)',
+    backgroundColor: 'rgba(255, 255, 255, 0.14)',
   },
   contenedorTeclado: {
     flex: 1,
@@ -430,27 +599,29 @@ const estilos = StyleSheet.create({
   contenidoScroll: {
     flexGrow: 1,
     justifyContent: 'center',
-    paddingHorizontal: 22,
-    paddingVertical: 32,
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 28,
   },
   tarjeta: {
-    backgroundColor: 'rgba(255, 255, 255, 0.92)',
-    borderRadius: 26,
-    borderWidth: 2,
-    borderColor: COLORES.grisMedio,
-    paddingHorizontal: 22,
-    paddingVertical: 26,
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: COLORES.celesteTransparente,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    borderColor: COLORES.bordeCeleste,
+    paddingHorizontal: 18,
+    paddingVertical: 20,
   },
   contenedorLogo: {
     alignSelf: 'center',
-    width: 114,
-    height: 114,
-    borderRadius: 57,
+    width: 122,
+    height: 122,
+    borderRadius: 61,
     overflow: 'hidden',
-    borderWidth: 3,
-    borderColor: COLORES.amarilloDorado,
-    backgroundColor: COLORES.negro,
-    marginBottom: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
   },
   logo: {
     width: '100%',
@@ -458,80 +629,72 @@ const estilos = StyleSheet.create({
   },
   tituloMarca: {
     fontFamily: 'Montserrat_800ExtraBold',
-    fontSize: 22,
+    fontSize: 20,
     color: COLORES.negro,
     textAlign: 'center',
     letterSpacing: 0.6,
-  },
-  subtitulo: {
-    fontFamily: 'Montserrat_600SemiBold',
-    fontSize: 13,
-    color: COLORES.maderaOscura,
-    textAlign: 'center',
-    marginTop: 4,
-    marginBottom: 18,
-    lineHeight: 18,
+    marginBottom: 14,
   },
   cajaAviso: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: COLORES.maderaOscura,
     borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 14,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    marginBottom: 12,
   },
   textoAviso: {
     flex: 1,
     fontFamily: 'Poppins_500Medium',
-    fontSize: 12.5,
+    fontSize: 12,
     color: COLORES.blanco,
   },
   grupoCampo: {
-    marginBottom: 14,
+    marginBottom: 12,
   },
   etiqueta: {
     fontFamily: 'Montserrat_700Bold',
-    fontSize: 13,
+    fontSize: 12,
     color: COLORES.negro,
-    marginBottom: 6,
+    marginBottom: 5,
     letterSpacing: 0.4,
   },
   contenedorInput: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 50,
-    backgroundColor: COLORES.blanco,
-    borderRadius: 14,
+    minHeight: 44,
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    borderRadius: 12,
     borderWidth: 1.5,
     borderColor: COLORES.grisMedio,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
   },
   bordeErrorInput: {
     borderColor: '#991B1B',
     backgroundColor: '#FEF2F2',
   },
   iconoIzquierdo: {
-    marginRight: 8,
+    marginRight: 7,
   },
   input: {
     flex: 1,
     fontFamily: 'Poppins_400Regular',
-    fontSize: 15,
+    fontSize: 14,
     color: COLORES.negro,
-    paddingVertical: 10,
+    paddingVertical: 8,
   },
   botonOjo: {
-    minWidth: 36,
-    minHeight: 36,
+    minWidth: 32,
+    minHeight: 32,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 6,
+    marginLeft: 4,
   },
   textoError: {
-    marginTop: 5,
+    marginTop: 4,
     fontFamily: 'Poppins_600SemiBold',
-    fontSize: 12.5,
+    fontSize: 12,
     color: '#991B1B',
   },
   cajaErrorAcceso: {
@@ -539,9 +702,9 @@ const estilos = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#991B1B',
     borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 12,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    marginBottom: 10,
   },
   iconoEstado: {
     marginRight: 8,
@@ -550,16 +713,35 @@ const estilos = StyleSheet.create({
     flex: 1,
     fontFamily: 'Poppins_500Medium',
     color: COLORES.blanco,
-    fontSize: 13,
+    fontSize: 12.5,
   },
-  botonPrincipal: {
-    minHeight: 52,
-    backgroundColor: COLORES.naranja,
-    borderRadius: 16,
+  botonReenviar: {
+    minHeight: 38,
+    borderRadius: 11,
+    borderWidth: 1.5,
+    borderColor: COLORES.naranja,
+    backgroundColor: 'rgba(255, 247, 237, 0.95)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 6,
-    paddingHorizontal: 16,
+    paddingHorizontal: 10,
+    marginBottom: 8,
+  },
+  textoBotonReenviar: {
+    fontFamily: 'Montserrat_700Bold',
+    fontSize: 12,
+    color: COLORES.maderaOscura,
+  },
+  botonPresionado: {
+    opacity: 0.85,
+  },
+  botonPrincipal: {
+    minHeight: 44,
+    backgroundColor: COLORES.naranja,
+    borderRadius: 13,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 4,
+    paddingHorizontal: 14,
   },
   botonPrincipalPresionado: {
     opacity: 0.85,
@@ -567,8 +749,8 @@ const estilos = StyleSheet.create({
   textoBotonPrincipal: {
     fontFamily: 'Montserrat_800ExtraBold',
     color: COLORES.blanco,
-    fontSize: 15,
-    letterSpacing: 0.6,
+    fontSize: 13.5,
+    letterSpacing: 0.5,
   },
   filaCarga: {
     flexDirection: 'row',
@@ -577,20 +759,20 @@ const estilos = StyleSheet.create({
   },
   botonRecuperarContrasena: {
     alignSelf: 'center',
-    marginTop: 14,
-    minHeight: 38,
+    marginTop: 12,
+    minHeight: 36,
     justifyContent: 'center',
   },
   textoRecuperarContrasena: {
     fontFamily: 'Poppins_600SemiBold',
     color: COLORES.maderaOscura,
-    fontSize: 15.5,
+    fontSize: 17,
     textDecorationLine: 'underline',
   },
   separador: {
     height: 1.5,
-    backgroundColor: COLORES.grisMedio,
-    marginVertical: 16,
+    backgroundColor: COLORES.bordeCeleste,
+    marginVertical: 13,
   },
   seccionRegistro: {
     alignItems: 'center',
@@ -598,17 +780,17 @@ const estilos = StyleSheet.create({
   textoSinCuenta: {
     fontFamily: 'Poppins_600SemiBold',
     color: COLORES.negro,
-    fontSize: 15.5,
-    marginBottom: 10,
+    fontSize: 17,
+    marginBottom: 8,
   },
   botonSecundario: {
     width: '100%',
-    minHeight: 50,
+    minHeight: 42,
     backgroundColor: COLORES.maderaOscura,
-    borderRadius: 16,
+    borderRadius: 13,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
   },
   botonSecundarioPresionado: {
     opacity: 0.85,
@@ -616,8 +798,8 @@ const estilos = StyleSheet.create({
   textoBotonSecundario: {
     fontFamily: 'Montserrat_800ExtraBold',
     color: COLORES.blanco,
-    fontSize: 14.5,
-    letterSpacing: 0.6,
+    fontSize: 13,
+    letterSpacing: 0.5,
   },
   botonDeshabilitado: {
     opacity: 0.65,

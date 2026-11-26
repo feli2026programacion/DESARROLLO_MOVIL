@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -35,6 +35,7 @@ import {
   where,
 } from 'firebase/firestore';
 import { auth, db, isFirebaseConfigured } from '../src/config/firebaseConfig';
+import MenuHamburguesa from './MenuHamburguesa';
 
 const COLORES = {
   blanco: '#FFFFFF',
@@ -72,17 +73,16 @@ export default function Asistencias({ navigation }) {
   const [cargandoLista, setCargandoLista] = useState(true);
   const [guardando, setGuardando] = useState(false);
 
-  const [textoBusqueda, setTextoBusqueda] = useState('');
   const [mensajeAviso, setMensajeAviso] = useState('');
   const [errorGeneral, setErrorGeneral] = useState('');
 
-  // Modal registrar asistencia manual
-  const [modalCrearVisible, setModalCrearVisible] = useState(false);
+  // Modal Registrar Asistencia
+  const [modalFormularioVisible, setModalFormularioVisible] = useState(false);
   const [siguienteIdPreview, setSiguienteIdPreview] = useState(1);
   const [dniCliente, setDniCliente] = useState('');
   const [errorDni, setErrorDni] = useState('');
 
-  // Modal ver detalle
+  // Ventana secundaria Ver detalle de asistencia
   const [asistenciaSeleccionada, setAsistenciaSeleccionada] = useState(null);
   const [modalDetalleVisible, setModalDetalleVisible] = useState(false);
 
@@ -123,22 +123,6 @@ export default function Asistencias({ navigation }) {
     return () => desuscribir();
   }, []);
 
-  const asistenciasFiltradas = useMemo(() => {
-    const termino = textoBusqueda.trim().toLowerCase();
-    if (!termino) return asistencias;
-
-    return asistencias.filter((item) => {
-      const dniCoincide = String(item?.dniCliente || '')
-        .toLowerCase()
-        .includes(termino);
-      const nombreCoincide = String(item?.clienteNombreCompleto || '')
-        .toLowerCase()
-        .includes(termino);
-      const idCoincide = String(item?.idAsistencia || '').includes(termino);
-      return dniCoincide || nombreCoincide || idCoincide;
-    });
-  }, [asistencias, textoBusqueda]);
-
   if (!fuentesCargadas) {
     return (
       <View style={estilos.pantallaCarga}>
@@ -152,12 +136,12 @@ export default function Asistencias({ navigation }) {
     setErrorGeneral('');
     setMensajeAviso('');
     setDniCliente('');
-    setModalCrearVisible(true);
+    setModalFormularioVisible(true);
   };
 
-  const cerrarModalCrear = () => {
+  const cerrarModalFormulario = () => {
     if (guardando) return;
-    setModalCrearVisible(false);
+    setModalFormularioVisible(false);
     setErrorDni('');
     setErrorGeneral('');
   };
@@ -217,12 +201,28 @@ export default function Asistencias({ navigation }) {
     };
   };
 
-  const registrarAsistenciaManual = async () => {
+  const buscarClientePorDni = async (dniLimpio) => {
+    const consulta = query(
+      collection(db, 'clientes'),
+      where('dni', '==', dniLimpio)
+    );
+    const snapshot = await getDocs(consulta);
+    if (snapshot.empty) return null;
+    const primerDoc = snapshot.docs[0];
+    return {
+      id: primerDoc.id,
+      ...primerDoc.data(),
+    };
+  };
+
+  const registrarAsistencia = async () => {
     if (guardando) return;
 
     const dniLimpio = dniCliente.trim();
-    if (!validarDni(dniLimpio, true)) {
-      setErrorGeneral('Ingrese un DNI válido antes de registrar la asistencia.');
+    const dniOk = validarDni(dniLimpio, true);
+
+    if (!dniOk) {
+      setErrorGeneral('Verifique el DNI ingresado antes de registrar la asistencia.');
       return;
     }
 
@@ -230,46 +230,41 @@ export default function Asistencias({ navigation }) {
     setErrorGeneral('');
 
     try {
-      const consultaCliente = query(
-        collection(db, 'clientes'),
-        where('dni', '==', dniLimpio)
-      );
-      const snapClientes = await getDocs(consultaCliente);
-
-      if (snapClientes.empty) {
+      const clienteEncontrado = await buscarClientePorDni(dniLimpio);
+      if (!clienteEncontrado) {
         setErrorDni('No existe un cliente registrado con este DNI');
-        setErrorGeneral('Verifique el DNI ingresado.');
-        setGuardando(false);
-        return;
-      }
-
-      const docCliente = snapClientes.docs[0];
-      const datosCliente = docCliente.data();
-      const diasActuales = Number(datosCliente?.diasDisponibles) || 0;
-
-      if (datosCliente?.estado !== 'Activo' || diasActuales <= 0) {
-        setErrorDni('El cliente está Inactivo o no tiene días disponibles');
-        setErrorGeneral(
-          'No se puede registrar asistencia: el cliente debe abonar una cuota para tener días disponibles.'
-        );
+        setErrorGeneral('El DNI ingresado no corresponde a ningún cliente.');
         setGuardando(false);
         return;
       }
 
       const infoUsuario = await obtenerUsuarioActualInfo();
       const ahoraIso = new Date().toISOString();
-      const clienteNombreCompleto =
-        `${datosCliente?.nombre || ''} ${datosCliente?.apellido || ''}`.trim();
-
       const refContadorAsistencias = doc(db, 'contadores', 'asistencias');
-      const refCliente = doc(db, 'clientes', docCliente.id);
+      const refCliente = doc(db, 'clientes', clienteEncontrado.id);
 
       let nuevoIdAsistencia = siguienteIdPreview;
-      let diasRestantes = Math.max(0, diasActuales - 1);
+      let diasRestantesCliente = 0;
+      let clienteSinDias = false;
+      const clienteNombreCompleto =
+        `${clienteEncontrado.nombre || ''} ${clienteEncontrado.apellido || ''}`.trim();
 
       await runTransaction(db, async (transaccion) => {
         const snapContador = await transaccion.get(refContadorAsistencias);
-        const snapClienteTrans = await transaccion.get(refCliente);
+        const snapCliente = await transaccion.get(refCliente);
+
+        if (!snapCliente.exists()) {
+          throw new Error('CLIENTE_NO_EXISTE');
+        }
+
+        const datosCliente = snapCliente.data();
+        const diasActuales = Number(datosCliente?.diasDisponibles) || 0;
+        const estadoActual = datosCliente?.estado || 'Inactivo';
+
+        if (estadoActual !== 'Activo' || diasActuales <= 0) {
+          clienteSinDias = true;
+          throw new Error('SIN_DIAS_DISPONIBLES');
+        }
 
         let ultimoId = 0;
         if (snapContador.exists()) {
@@ -281,17 +276,10 @@ export default function Asistencias({ navigation }) {
           });
         }
 
-        const diasEnTransaccion = snapClienteTrans.exists()
-          ? Number(snapClienteTrans.data()?.diasDisponibles) || 0
-          : 0;
-
-        if (diasEnTransaccion <= 0) {
-          throw new Error('SIN_DIAS');
-        }
-
         nuevoIdAsistencia = ultimoId + 1;
-        diasRestantes = Math.max(0, diasEnTransaccion - 1);
-        const nuevoEstadoCliente = diasRestantes > 0 ? 'Activo' : 'Inactivo';
+        diasRestantesCliente = Math.max(0, diasActuales - 1);
+        const nuevoEstadoCliente =
+          diasRestantesCliente > 0 ? 'Activo' : 'Inactivo';
 
         transaccion.set(
           refContadorAsistencias,
@@ -307,7 +295,7 @@ export default function Asistencias({ navigation }) {
         transaccion.set(refNuevaAsistencia, {
           idAsistencia: nuevoIdAsistencia,
           dniCliente: dniLimpio,
-          clienteId: docCliente.id,
+          clienteId: clienteEncontrado.id,
           clienteNombreCompleto,
           fechaHoraRegistro: ahoraIso,
           origenRegistro: 'Manual',
@@ -316,26 +304,41 @@ export default function Asistencias({ navigation }) {
           registradoPorUid: infoUsuario.uid,
         });
 
-        const cambiosCliente = {
-          diasDisponibles: diasRestantes,
+        const actualizacionCliente = {
+          diasDisponibles: diasRestantesCliente,
           estado: nuevoEstadoCliente,
           fechaActualizacion: ahoraIso,
         };
 
         if (nuevoEstadoCliente === 'Inactivo') {
-          cambiosCliente.fechaInicioInactividad = ahoraIso;
+          actualizacionCliente.fechaInicioInactividad = ahoraIso;
         }
 
-        transaccion.set(refCliente, cambiosCliente, { merge: true });
+        transaccion.set(refCliente, actualizacionCliente, { merge: true });
       });
 
+      if (clienteSinDias) {
+        setErrorDni(
+          'El cliente está Inactivo o no tiene días disponibles. Debe pagar una cuota.'
+        );
+        setErrorGeneral('No se puede registrar asistencia sin días disponibles.');
+        setGuardando(false);
+        return;
+      }
+
       setMensajeAviso(
-        `Asistencia #${nuevoIdAsistencia} registrada para ${clienteNombreCompleto}. Días disponibles restantes: ${diasRestantes}.`
+        diasRestantesCliente > 0
+          ? `Asistencia #${nuevoIdAsistencia} registrada para ${clienteNombreCompleto}. Le quedan ${diasRestantesCliente} días disponibles.`
+          : `Asistencia #${nuevoIdAsistencia} registrada para ${clienteNombreCompleto}. Consumió su último día y pasó a Inactivo.`
       );
-      setModalCrearVisible(false);
-    } catch (err) {
-      if (err?.message === 'SIN_DIAS') {
-        setErrorGeneral('El cliente ya no tiene días disponibles.');
+
+      setModalFormularioVisible(false);
+    } catch (error) {
+      if (error?.message === 'SIN_DIAS_DISPONIBLES') {
+        setErrorDni(
+          'El cliente está Inactivo o tiene 0 días disponibles. Debe abonar una cuota.'
+        );
+        setErrorGeneral('No se puede registrar asistencia sin días disponibles.');
       } else {
         setErrorGeneral('No se pudo registrar la asistencia en Firebase.');
       }
@@ -348,69 +351,39 @@ export default function Asistencias({ navigation }) {
     <View style={estilos.contenedorPrincipal}>
       {/* Encabezado superior */}
       <View style={estilos.barraSuperior}>
-        <Pressable
-          onPress={() => navigation.goBack()}
-          disabled={guardando}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          style={({ pressed }) => [
-            estilos.botonVolver,
-            pressed && estilos.botonPresionado,
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel="Volver"
-        >
-          <Ionicons name="arrow-back" size={24} color={COLORES.negro} />
-        </Pressable>
+        <View style={estilos.huecoMenuHamburguesa}>
+          <MenuHamburguesa
+            navigation={navigation}
+            rutaActual="Asistencias"
+            onSeccionNoHabilitada={(mensaje) => setMensajeAviso(mensaje)}
+          />
+        </View>
 
-        <Text style={estilos.tituloEncabezado}>ASISTENCIAS</Text>
+        <Text style={estilos.tituloEncabezado} numberOfLines={1}>
+          ASISTENCIAS
+        </Text>
 
         <Pressable
           onPress={abrirModalCrear}
           disabled={guardando}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           style={({ pressed }) => [
-            estilos.botonAgregarSuperior,
+            estilos.botonAccionSuperior,
             pressed && estilos.botonPresionado,
           ]}
           accessibilityRole="button"
           accessibilityLabel="Registrar asistencia"
         >
-          <Ionicons name="add" size={24} color={COLORES.blanco} />
+          <Text style={estilos.textoBotonSuperior} numberOfLines={1}>
+            Registrar asistencia
+          </Text>
         </Pressable>
       </View>
 
-      <View style={estilos.contenidoCuerpo}>
-        {/* Buscador por DNI o nombre */}
-        <View style={estilos.contenedorBuscador}>
-          <Ionicons
-            name="search-outline"
-            size={20}
-            color={COLORES.maderaOscura}
-            style={estilos.iconoBuscar}
-          />
-          <TextInput
-            style={estilos.inputBuscador}
-            value={textoBusqueda}
-            onChangeText={setTextoBusqueda}
-            placeholder="Buscar por DNI, nombre o #ID..."
-            placeholderTextColor="#6E706D"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          {textoBusqueda ? (
-            <Pressable
-              onPress={() => setTextoBusqueda('')}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Ionicons
-                name="close-circle"
-                size={20}
-                color={COLORES.maderaOscura}
-              />
-            </Pressable>
-          ) : null}
-        </View>
-
+      <ScrollView
+        contentContainerStyle={estilos.contenidoScroll}
+        showsVerticalScrollIndicator={false}
+      >
         {mensajeAviso ? (
           <View style={estilos.cajaAviso}>
             <Ionicons
@@ -422,7 +395,7 @@ export default function Asistencias({ navigation }) {
           </View>
         ) : null}
 
-        {errorGeneral && !modalCrearVisible ? (
+        {errorGeneral && !modalFormularioVisible ? (
           <View style={estilos.cajaError}>
             <Ionicons
               name="alert-circle-outline"
@@ -438,7 +411,7 @@ export default function Asistencias({ navigation }) {
             <ActivityIndicator size="large" color={COLORES.naranja} />
             <Text style={estilos.textoCargando}>Cargando asistencias...</Text>
           </View>
-        ) : asistenciasFiltradas.length === 0 ? (
+        ) : asistencias.length === 0 ? (
           <View style={estilos.tarjetaVacia}>
             <Ionicons
               name="calendar-outline"
@@ -446,73 +419,83 @@ export default function Asistencias({ navigation }) {
               color={COLORES.maderaOscura}
             />
             <Text style={estilos.tituloVacio}>
-              {textoBusqueda
-                ? 'Sin coincidencias'
-                : 'No hay asistencias registradas'}
+              No hay asistencias registradas
             </Text>
             <Text style={estilos.textoVacio}>
-              {textoBusqueda
-                ? 'No se encontraron asistencias con ese criterio.'
-                : 'Registrá una asistencia manual con el botón + o al abonar una cuota.'}
+              Tocá "Registrar asistencia" e ingresá el DNI de un cliente Activo para descontar 1 día disponible.
             </Text>
-            {!textoBusqueda ? (
-              <Pressable
-                style={({ pressed }) => [
-                  estilos.botonCrearVacio,
-                  pressed && estilos.botonPresionado,
-                ]}
-                onPress={abrirModalCrear}
-              >
-                <Text style={estilos.textoBotonBlanco}>
-                  REGISTRAR ASISTENCIA
-                </Text>
-              </Pressable>
-            ) : null}
+            <Pressable
+              style={({ pressed }) => [
+                estilos.botonCrearVacio,
+                pressed && estilos.botonPresionado,
+              ]}
+              onPress={abrirModalCrear}
+            >
+              <Text style={estilos.textoBotonBlanco}>
+                REGISTRAR ASISTENCIA
+              </Text>
+            </Pressable>
           </View>
         ) : (
-          <ScrollView showsVerticalScrollIndicator={false}>
-            {asistenciasFiltradas.map((asistencia) => (
+          asistencias.map((item) => (
+            <Pressable
+              key={item.id}
+              onPress={() => {
+                setAsistenciaSeleccionada(item);
+                setModalDetalleVisible(true);
+              }}
+              style={({ pressed }) => [
+                estilos.tarjetaAsistencia,
+                pressed && estilos.tarjetaPresionada,
+              ]}
+            >
+              <View style={estilos.filaCabeceraAsistencia}>
+                <Text style={estilos.idAsistenciaBadge}>
+                  ASISTENCIA #{item.idAsistencia}
+                </Text>
+                {item.origenRegistro === 'Cuota' ? (
+                  <Text style={estilos.badgeOrigenCuota}>Por cuota</Text>
+                ) : (
+                  <Text style={estilos.badgeOrigenManual}>Manual</Text>
+                )}
+              </View>
+
+              <Text style={estilos.datoPrincipal}>
+                DNI Cliente: {item.dniCliente}
+                {item.clienteNombreCompleto
+                  ? ` · ${item.clienteNombreCompleto}`
+                  : ''}
+              </Text>
+
+              <Text style={estilos.fechaAsistencia}>
+                Fecha y hora: {formatearFechaHora(item.fechaHoraRegistro)}
+              </Text>
+
+              <View style={estilos.separadorTarjeta} />
+
               <Pressable
-                key={asistencia.id}
+                style={({ pressed }) => [
+                  estilos.botonDetalleAsistencia,
+                  pressed && estilos.botonPresionado,
+                ]}
                 onPress={() => {
-                  setAsistenciaSeleccionada(asistencia);
+                  setAsistenciaSeleccionada(item);
                   setModalDetalleVisible(true);
                 }}
-                style={({ pressed }) => [
-                  estilos.tarjetaAsistencia,
-                  pressed && estilos.tarjetaPresionada,
-                ]}
               >
-                <View style={estilos.filaCabeceraAsistencia}>
-                  <Text style={estilos.idAsistenciaBadge}>
-                    ASISTENCIA #{asistencia.idAsistencia}
-                  </Text>
-                  <Text style={estilos.origenBadge}>
-                    {asistencia.origenRegistro || 'Manual'}
-                  </Text>
-                </View>
-
-                <Text style={estilos.datoPrincipal}>
-                  DNI Cliente: {asistencia.dniCliente}
-                  {asistencia.clienteNombreCompleto
-                    ? ` · ${asistencia.clienteNombreCompleto}`
-                    : ''}
-                </Text>
-
-                <Text style={estilos.datoFecha}>
-                  Día y hora: {formatearFechaHora(asistencia.fechaHoraRegistro)}
-                </Text>
-
-                <Text style={estilos.datoUsuario}>
-                  Registrado por: {asistencia.registradoPorNombre || 'Administrador'}
-                </Text>
+                <Ionicons
+                  name="eye-outline"
+                  size={17}
+                  color={COLORES.naranja}
+                />
+                <Text style={estilos.textoDetalleAsistencia}>Ver detalle</Text>
               </Pressable>
-            ))}
-          </ScrollView>
+            </Pressable>
+          ))
         )}
-      </View>
+      </ScrollView>
 
-      {/* Modal Ver detalle de asistencia */}
+      {/* Ventana secundaria Ver detalle de asistencia */}
       <Modal
         visible={modalDetalleVisible}
         transparent
@@ -557,16 +540,13 @@ export default function Asistencias({ navigation }) {
                 ) : null}
 
                 <View style={estilos.bloqueDetalle}>
-                  <Text style={estilos.etiquetaDetalle}>DÍA Y HORA DE REGISTRO</Text>
-                  <Text style={estilos.valorDetalle}>
-                    {formatearFechaHora(asistenciaSeleccionada.fechaHoraRegistro)}
+                  <Text style={estilos.etiquetaDetalle}>
+                    FECHA Y HORA DE REGISTRO
                   </Text>
-                </View>
-
-                <View style={estilos.bloqueDetalle}>
-                  <Text style={estilos.etiquetaDetalle}>ORIGEN DEL REGISTRO</Text>
                   <Text style={estilos.valorDetalle}>
-                    {asistenciaSeleccionada.origenRegistro || 'Manual'}
+                    {formatearFechaHora(
+                      asistenciaSeleccionada.fechaHoraRegistro
+                    )}
                   </Text>
                 </View>
 
@@ -575,7 +555,8 @@ export default function Asistencias({ navigation }) {
                     USUARIO QUE REGISTRÓ LA ASISTENCIA
                   </Text>
                   <Text style={estilos.valorDetalle}>
-                    {asistenciaSeleccionada.registradoPorNombre || 'Administrador'}
+                    {asistenciaSeleccionada.registradoPorNombre ||
+                      'Administrador'}
                   </Text>
                 </View>
 
@@ -595,12 +576,12 @@ export default function Asistencias({ navigation }) {
         </View>
       </Modal>
 
-      {/* Modal Registrar Asistencia Manual */}
+      {/* Modal Registrar Asistencia */}
       <Modal
-        visible={modalCrearVisible}
+        visible={modalFormularioVisible}
         transparent
         animationType="fade"
-        onRequestClose={cerrarModalCrear}
+        onRequestClose={cerrarModalFormulario}
       >
         <KeyboardAvoidingView
           style={estilos.fondoModal}
@@ -610,7 +591,7 @@ export default function Asistencias({ navigation }) {
             <View style={estilos.cabeceraModal}>
               <Text style={estilos.tituloModal}>REGISTRAR ASISTENCIA</Text>
               <Pressable
-                onPress={cerrarModalCrear}
+                onPress={cerrarModalFormulario}
                 disabled={guardando}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
@@ -633,6 +614,7 @@ export default function Asistencias({ navigation }) {
                 </View>
               ) : null}
 
+              {/* ID Autoincremental automático */}
               <View style={estilos.grupoCampo}>
                 <Text style={estilos.etiqueta}>
                   ID DE ASISTENCIA (AUTOINCREMENTAL)
@@ -643,6 +625,7 @@ export default function Asistencias({ navigation }) {
                 </View>
               </View>
 
+              {/* DNI del cliente */}
               <View style={estilos.grupoCampo}>
                 <Text style={estilos.etiqueta}>DNI DEL CLIENTE</Text>
                 <TextInput
@@ -655,7 +638,7 @@ export default function Asistencias({ navigation }) {
                     if (errorDni) validarDni(soloNumeros, true);
                   }}
                   onBlur={() => validarDni(dniCliente, true)}
-                  placeholder="Ingrese DNI del cliente activo"
+                  placeholder="Ingrese DNI del cliente"
                   placeholderTextColor="#6E706D"
                   keyboardType="number-pad"
                   maxLength={8}
@@ -666,8 +649,8 @@ export default function Asistencias({ navigation }) {
                 ) : null}
               </View>
 
-              <Text style={estilos.notaDescuento}>
-                Al confirmar, se descontará 1 día disponible del cliente y se registrará la fecha, hora y usuario actual.
+              <Text style={estilos.notaReglaAsistencia}>
+                Al registrar la asistencia se descontará 1 día disponible del cliente. Si llega a 0 días, pasará automáticamente a Inactivo.
               </Text>
 
               <View style={estilos.contenedorBotonesModal}>
@@ -677,14 +660,14 @@ export default function Asistencias({ navigation }) {
                     pressed && !guardando && estilos.botonPresionado,
                     guardando && estilos.botonDeshabilitado,
                   ]}
-                  onPress={registrarAsistenciaManual}
+                  onPress={registrarAsistencia}
                   disabled={guardando}
                 >
                   {guardando ? (
                     <ActivityIndicator size="small" color={COLORES.blanco} />
                   ) : (
                     <Text style={estilos.textoBotonBlanco}>
-                      CONFIRMAR ASISTENCIA
+                      REGISTRAR ASISTENCIA
                     </Text>
                   )}
                 </Pressable>
@@ -694,7 +677,7 @@ export default function Asistencias({ navigation }) {
                     estilos.botonCancelar,
                     pressed && !guardando && estilos.botonPresionado,
                   ]}
-                  onPress={cerrarModalCrear}
+                  onPress={cerrarModalFormulario}
                   disabled={guardando}
                 >
                   <Text style={estilos.textoBotonOscuro}>CANCELAR</Text>
@@ -730,56 +713,39 @@ const estilos = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLORES.grisMedio,
   },
-  botonVolver: {
+  huecoMenuHamburguesa: {
     width: 42,
     height: 42,
-    borderRadius: 12,
-    backgroundColor: COLORES.blanco,
-    borderWidth: 1.5,
-    borderColor: COLORES.grisMedio,
     justifyContent: 'center',
     alignItems: 'center',
   },
   tituloEncabezado: {
+    flex: 1,
+    textAlign: 'center',
     fontFamily: 'Montserrat_800ExtraBold',
-    fontSize: 16,
+    fontSize: 14,
     color: COLORES.negro,
-    letterSpacing: 0.6,
+    letterSpacing: 0.3,
+    marginHorizontal: 4,
   },
-  botonAgregarSuperior: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
+  botonAccionSuperior: {
+    minHeight: 38,
+    paddingHorizontal: 10,
+    borderRadius: 11,
     backgroundColor: COLORES.naranja,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  contenidoCuerpo: {
-    flex: 1,
+  textoBotonSuperior: {
+    fontFamily: 'Montserrat_700Bold',
+    fontSize: 11,
+    color: COLORES.blanco,
+  },
+  contenidoScroll: {
+    flexGrow: 1,
     paddingHorizontal: 18,
-    paddingTop: 14,
-    paddingBottom: 24,
-  },
-  contenedorBuscador: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: 46,
-    backgroundColor: COLORES.blanco,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: COLORES.grisMedio,
-    paddingHorizontal: 12,
-    marginBottom: 12,
-  },
-  iconoBuscar: {
-    marginRight: 8,
-  },
-  inputBuscador: {
-    flex: 1,
-    fontFamily: 'Poppins_400Regular',
-    fontSize: 14,
-    color: COLORES.negro,
-    paddingVertical: 8,
+    paddingTop: 16,
+    paddingBottom: 36,
   },
   cajaAviso: {
     flexDirection: 'row',
@@ -791,7 +757,7 @@ const estilos = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    marginBottom: 12,
+    marginBottom: 14,
   },
   textoAviso: {
     flex: 1,
@@ -807,7 +773,7 @@ const estilos = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    marginBottom: 12,
+    marginBottom: 14,
   },
   textoErrorBlanco: {
     flex: 1,
@@ -826,7 +792,7 @@ const estilos = StyleSheet.create({
     color: COLORES.maderaOscura,
   },
   tarjetaVacia: {
-    marginTop: 28,
+    marginTop: 30,
     backgroundColor: COLORES.blanco,
     borderRadius: 20,
     borderWidth: 1.5,
@@ -861,8 +827,8 @@ const estilos = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1.5,
     borderColor: COLORES.grisMedio,
-    padding: 15,
-    marginBottom: 12,
+    padding: 16,
+    marginBottom: 14,
   },
   tarjetaPresionada: {
     backgroundColor: '#FFF7ED',
@@ -884,7 +850,18 @@ const estilos = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 999,
   },
-  origenBadge: {
+  badgeOrigenCuota: {
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 11.5,
+    color: '#15803D',
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#15803D',
+    paddingHorizontal: 9,
+    paddingVertical: 2,
+    borderRadius: 999,
+  },
+  badgeOrigenManual: {
     fontFamily: 'Poppins_600SemiBold',
     fontSize: 11.5,
     color: COLORES.naranja,
@@ -901,17 +878,32 @@ const estilos = StyleSheet.create({
     color: COLORES.negro,
     marginTop: 2,
   },
-  datoFecha: {
-    fontFamily: 'Poppins_500Medium',
-    fontSize: 13,
-    color: COLORES.maderaOscura,
-    marginTop: 2,
-  },
-  datoUsuario: {
+  fechaAsistencia: {
     fontFamily: 'Poppins_400Regular',
     fontSize: 12.5,
     color: '#52525B',
     marginTop: 3,
+  },
+  separadorTarjeta: {
+    height: 1,
+    backgroundColor: COLORES.grisMedio,
+    marginVertical: 11,
+  },
+  botonDetalleAsistencia: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORES.naranja,
+    backgroundColor: '#FFF7ED',
+  },
+  textoDetalleAsistencia: {
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 12.5,
+    color: COLORES.naranja,
   },
   fondoModal: {
     flex: 1,
@@ -940,8 +932,8 @@ const estilos = StyleSheet.create({
     color: COLORES.negro,
   },
   bloqueDetalle: {
-    marginBottom: 11,
-    paddingBottom: 9,
+    marginBottom: 12,
+    paddingBottom: 10,
     borderBottomWidth: 1,
     borderBottomColor: COLORES.grisMedio,
   },
@@ -1013,15 +1005,15 @@ const estilos = StyleSheet.create({
     fontSize: 11.5,
     color: '#991B1B',
   },
-  notaDescuento: {
+  notaReglaAsistencia: {
     fontFamily: 'Poppins_500Medium',
     fontSize: 12,
     color: COLORES.maderaOscura,
-    lineHeight: 17,
-    marginBottom: 8,
+    lineHeight: 18,
+    marginBottom: 6,
   },
   contenedorBotonesModal: {
-    marginTop: 8,
+    marginTop: 10,
     gap: 10,
   },
   margenSuperiorBoton: {

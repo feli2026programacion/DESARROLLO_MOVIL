@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -25,16 +24,18 @@ import {
   Poppins_600SemiBold,
 } from '@expo-google-fonts/poppins';
 import {
-  addDoc,
   collection,
-  deleteDoc,
   doc,
+  getDoc,
+  getDocs,
   onSnapshot,
   orderBy,
   query,
-  setDoc,
+  runTransaction,
+  where,
 } from 'firebase/firestore';
-import { db, isFirebaseConfigured } from '../src/config/firebaseConfig';
+import { auth, db, isFirebaseConfigured } from '../src/config/firebaseConfig';
+import MenuHamburguesa from './MenuHamburguesa';
 
 const COLORES = {
   blanco: '#FFFFFF',
@@ -45,21 +46,20 @@ const COLORES = {
   grisMedio: '#BDBFBC',
 };
 
-const LIMITE_NOMBRE_PLAN = 40;
-const LIMITE_MONTO_CARACTERES = 6;
-const LIMITE_DIAS_CARACTERES = 3;
-const TIPOS_PLAN = ['Mensual', 'Por un día'];
-
-const formatearMonto = (valor) => {
-  const numero = Number(valor);
-  if (Number.isNaN(numero)) return '$0';
-  return `$${numero.toLocaleString('es-AR', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  })}`;
+const formatearFechaHora = (isoString) => {
+  if (!isoString) return '-';
+  const fecha = new Date(isoString);
+  if (Number.isNaN(fecha.getTime())) return isoString;
+  return fecha.toLocaleString('es-AR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 };
 
-export default function Planes({ navigation }) {
+export default function Asistencias({ navigation }) {
   const [fuentesCargadas] = useFonts({
     Montserrat_600SemiBold,
     Montserrat_700Bold,
@@ -69,23 +69,22 @@ export default function Planes({ navigation }) {
     Poppins_600SemiBold,
   });
 
-  const [planes, setPlanes] = useState([]);
+  const [asistencias, setAsistencias] = useState([]);
   const [cargandoLista, setCargandoLista] = useState(true);
   const [guardando, setGuardando] = useState(false);
 
-  const [modalVisible, setModalVisible] = useState(false);
-  const [planEditando, setPlanEditando] = useState(null);
-
-  const [nombrePlan, setNombrePlan] = useState('');
-  const [montoPlan, setMontoPlan] = useState('');
-  const [diasDisponibles, setDiasDisponibles] = useState('');
-  const [tipoPlan, setTipoPlan] = useState('Mensual');
-
-  const [errorNombre, setErrorNombre] = useState('');
-  const [errorMonto, setErrorMonto] = useState('');
-  const [errorDias, setErrorDias] = useState('');
-  const [errorGeneral, setErrorGeneral] = useState('');
   const [mensajeAviso, setMensajeAviso] = useState('');
+  const [errorGeneral, setErrorGeneral] = useState('');
+
+  // Modal Registrar Asistencia
+  const [modalFormularioVisible, setModalFormularioVisible] = useState(false);
+  const [siguienteIdPreview, setSiguienteIdPreview] = useState(1);
+  const [dniCliente, setDniCliente] = useState('');
+  const [errorDni, setErrorDni] = useState('');
+
+  // Ventana secundaria Ver detalle de asistencia
+  const [asistenciaSeleccionada, setAsistenciaSeleccionada] = useState(null);
+  const [modalDetalleVisible, setModalDetalleVisible] = useState(false);
 
   useEffect(() => {
     if (!isFirebaseConfigured) {
@@ -94,23 +93,29 @@ export default function Planes({ navigation }) {
       return;
     }
 
-    const consultaPlanes = query(
-      collection(db, 'planes'),
-      orderBy('fechaCreacion', 'desc')
+    const consultaAsistencias = query(
+      collection(db, 'asistencias'),
+      orderBy('idAsistencia', 'desc')
     );
 
     const desuscribir = onSnapshot(
-      consultaPlanes,
+      consultaAsistencias,
       (instantanea) => {
         const lista = instantanea.docs.map((documento) => ({
           id: documento.id,
           ...documento.data(),
         }));
-        setPlanes(lista);
+        setAsistencias(lista);
+
+        const maxId = lista.reduce((acum, item) => {
+          const valor = Number(item?.idAsistencia) || 0;
+          return valor > acum ? valor : acum;
+        }, 0);
+        setSiguienteIdPreview(maxId + 1);
         setCargandoLista(false);
       },
       () => {
-        setErrorGeneral('No se pudieron cargar los planes desde Firestore.');
+        setErrorGeneral('No se pudieron cargar las asistencias desde Firestore.');
         setCargandoLista(false);
       }
     );
@@ -126,276 +131,252 @@ export default function Planes({ navigation }) {
     );
   }
 
-  const limpiarErroresFormulario = () => {
-    setErrorNombre('');
-    setErrorMonto('');
-    setErrorDias('');
+  const abrirModalCrear = () => {
+    setErrorDni('');
+    setErrorGeneral('');
+    setMensajeAviso('');
+    setDniCliente('');
+    setModalFormularioVisible(true);
+  };
+
+  const cerrarModalFormulario = () => {
+    if (guardando) return;
+    setModalFormularioVisible(false);
+    setErrorDni('');
     setErrorGeneral('');
   };
 
-  const abrirModalCrear = () => {
-    limpiarErroresFormulario();
-    setMensajeAviso('');
-    setPlanEditando(null);
-    setNombrePlan('');
-    setMontoPlan('');
-    setDiasDisponibles('');
-    setTipoPlan('Mensual');
-    setModalVisible(true);
-  };
-
-  const abrirModalEditar = (plan) => {
-    limpiarErroresFormulario();
-    setMensajeAviso('');
-    setPlanEditando(plan);
-    setNombrePlan(plan?.nombre || '');
-    setMontoPlan(
-      plan?.monto !== undefined && plan?.monto !== null
-        ? String(plan.monto).slice(0, LIMITE_MONTO_CARACTERES)
-        : ''
-    );
-    setDiasDisponibles(
-      plan?.diasDisponibles !== undefined && plan?.diasDisponibles !== null
-        ? String(plan.diasDisponibles).slice(0, LIMITE_DIAS_CARACTERES)
-        : ''
-    );
-    setTipoPlan(TIPOS_PLAN.includes(plan?.tipo) ? plan.tipo : 'Mensual');
-    setModalVisible(true);
-  };
-
-  const cerrarModal = () => {
-    if (guardando) return;
-    setModalVisible(false);
-    setPlanEditando(null);
-    limpiarErroresFormulario();
-  };
-
-  const validarNombrePlan = (valor, mostrar = false) => {
+  const validarDni = (valor, mostrar = false) => {
     const limpio = valor.trim();
     if (!limpio) {
-      if (mostrar) setErrorNombre('Falta ingresar el nombre del plan');
-      return false;
-    }
-    if (limpio.length > LIMITE_NOMBRE_PLAN) {
-      if (mostrar) {
-        setErrorNombre(`Máximo ${LIMITE_NOMBRE_PLAN} caracteres`);
-      }
-      return false;
-    }
-    setErrorNombre('');
-    return true;
-  };
-
-  const validarMontoPlan = (valor, mostrar = false) => {
-    const limpio = valor.trim();
-    if (!limpio) {
-      if (mostrar) setErrorMonto('Falta ingresar el monto del plan');
-      return false;
-    }
-    if (limpio.length > LIMITE_MONTO_CARACTERES) {
-      if (mostrar) {
-        setErrorMonto(`El monto puede tener como máximo ${LIMITE_MONTO_CARACTERES} caracteres`);
-      }
-      return false;
-    }
-    const normalizado = limpio.replace(',', '.');
-    const numero = Number(normalizado);
-    if (Number.isNaN(numero) || numero <= 0) {
-      if (mostrar) setErrorMonto('Ingrese un monto válido mayor a 0');
-      return false;
-    }
-    setErrorMonto('');
-    return true;
-  };
-
-  const validarDiasDisponibles = (valor, mostrar = false) => {
-    const limpio = valor.trim();
-    if (!limpio) {
-      if (mostrar) setErrorDias('Falta ingresar los días disponibles');
+      if (mostrar) setErrorDni('Falta ingresar el DNI del cliente');
       return false;
     }
     if (!/^[0-9]+$/.test(limpio)) {
-      if (mostrar) setErrorDias('Solo se permiten números');
+      if (mostrar) setErrorDni('El DNI solo puede contener números');
       return false;
     }
-    const cantidad = Number(limpio);
-    if (Number.isNaN(cantidad) || cantidad <= 0) {
-      if (mostrar) setErrorDias('Ingrese una cantidad de días mayor a 0');
+    if (limpio.length < 7 || limpio.length > 8) {
+      if (mostrar) setErrorDni('El DNI debe tener entre 7 y 8 dígitos');
       return false;
     }
-    setErrorDias('');
+    setErrorDni('');
     return true;
   };
 
-  const manejarCambioMonto = (texto) => {
-    const soloPermitidos = texto
-      .replace(/[^0-9.,]/g, '')
-      .slice(0, LIMITE_MONTO_CARACTERES);
-    setMontoPlan(soloPermitidos);
-    setErrorGeneral('');
-    if (errorMonto) {
-      validarMontoPlan(soloPermitidos, true);
+  const obtenerUsuarioActualInfo = async () => {
+    const usuarioAuth = auth.currentUser;
+    if (!usuarioAuth) {
+      return {
+        uid: '',
+        nombreCompleto: 'Administrador',
+        correo: '',
+      };
     }
+
+    let nombreCompleto = usuarioAuth.email
+      ? usuarioAuth.email.split('@')[0]
+      : 'Administrador';
+
+    try {
+      const snapUsuario = await getDoc(doc(db, 'usuarios', usuarioAuth.uid));
+      if (snapUsuario.exists()) {
+        const datosU = snapUsuario.data();
+        const armado = [datosU?.nombre, datosU?.apellido]
+          .filter(Boolean)
+          .join(' ')
+          .trim();
+        if (armado) {
+          nombreCompleto = armado;
+        }
+      }
+    } catch (_e) {
+      // Usa respaldo
+    }
+
+    return {
+      uid: usuarioAuth.uid,
+      nombreCompleto,
+      correo: usuarioAuth.email || '',
+    };
   };
 
-  const manejarCambioDias = (texto) => {
-    const soloNumeros = texto
-      .replace(/[^0-9]/g, '')
-      .slice(0, LIMITE_DIAS_CARACTERES);
-    setDiasDisponibles(soloNumeros);
-    setErrorGeneral('');
-    if (errorDias) {
-      validarDiasDisponibles(soloNumeros, true);
-    }
+  const buscarClientePorDni = async (dniLimpio) => {
+    const consulta = query(
+      collection(db, 'clientes'),
+      where('dni', '==', dniLimpio)
+    );
+    const snapshot = await getDocs(consulta);
+    if (snapshot.empty) return null;
+    const primerDoc = snapshot.docs[0];
+    return {
+      id: primerDoc.id,
+      ...primerDoc.data(),
+    };
   };
 
-  const guardarPlan = async () => {
+  const registrarAsistencia = async () => {
     if (guardando) return;
 
-    const hayCamposVacios =
-      !nombrePlan.trim() || !montoPlan.trim() || !diasDisponibles.trim();
-    const nombreOk = validarNombrePlan(nombrePlan, true);
-    const montoOk = validarMontoPlan(montoPlan, true);
-    const diasOk = validarDiasDisponibles(diasDisponibles, true);
+    const dniLimpio = dniCliente.trim();
+    const dniOk = validarDni(dniLimpio, true);
 
-    if (!nombreOk || !montoOk || !diasOk) {
-      setErrorGeneral(
-        hayCamposVacios
-          ? 'Faltan datos por completar. Complete todos los campos obligatorios.'
-          : 'Revise los datos marcados antes de guardar el plan.'
-      );
+    if (!dniOk) {
+      setErrorGeneral('Verifique el DNI ingresado antes de registrar la asistencia.');
       return;
     }
 
-    const nombreLimpio = nombrePlan.trim();
-    const montoNumerico = Number(montoPlan.replace(',', '.').trim());
-    const diasNumericos = Number(diasDisponibles.trim());
-    const ahora = new Date().toISOString();
-
     setGuardando(true);
     setErrorGeneral('');
 
     try {
-      if (planEditando) {
-        const refPlan = doc(db, 'planes', planEditando.id);
-        await setDoc(
-          refPlan,
-          {
-            nombre: nombreLimpio,
-            monto: montoNumerico,
-            diasDisponibles: diasNumericos,
-            tipo: tipoPlan,
-            fechaActualizacion: ahora,
-          },
-          { merge: true }
-        );
-        setMensajeAviso('Plan actualizado correctamente.');
-      } else {
-        // Todo plan nuevo se crea siempre en estado 'Activo'
-        await addDoc(collection(db, 'planes'), {
-          nombre: nombreLimpio,
-          monto: montoNumerico,
-          diasDisponibles: diasNumericos,
-          tipo: tipoPlan,
-          estado: 'Activo',
-          fechaCreacion: ahora,
-          fechaActualizacion: ahora,
-        });
-        setMensajeAviso('Plan creado correctamente en estado Activo.');
+      const clienteEncontrado = await buscarClientePorDni(dniLimpio);
+      if (!clienteEncontrado) {
+        setErrorDni('No existe un cliente registrado con este DNI');
+        setErrorGeneral('El DNI ingresado no corresponde a ningún cliente.');
+        setGuardando(false);
+        return;
       }
 
-      setModalVisible(false);
-      setPlanEditando(null);
-    } catch (_error) {
-      setErrorGeneral('No se pudo guardar el plan en Firebase.');
-    } finally {
-      setGuardando(false);
-    }
-  };
+      const infoUsuario = await obtenerUsuarioActualInfo();
+      const ahoraIso = new Date().toISOString();
+      const refContadorAsistencias = doc(db, 'contadores', 'asistencias');
+      const refCliente = doc(db, 'clientes', clienteEncontrado.id);
 
-  const alternarEstadoPlan = async (plan) => {
-    if (guardando) return;
-    const nuevoEstado = plan?.estado === 'Activo' ? 'Inactivo' : 'Activo';
-    setGuardando(true);
-    setMensajeAviso('');
+      let nuevoIdAsistencia = siguienteIdPreview;
+      let diasRestantesCliente = 0;
+      let clienteSinDias = false;
+      const clienteNombreCompleto =
+        `${clienteEncontrado.nombre || ''} ${clienteEncontrado.apellido || ''}`.trim();
 
-    try {
-      const refPlan = doc(db, 'planes', plan.id);
-      await setDoc(
-        refPlan,
-        {
-          estado: nuevoEstado,
-          fechaActualizacion: new Date().toISOString(),
-        },
-        { merge: true }
+      await runTransaction(db, async (transaccion) => {
+        const snapContador = await transaccion.get(refContadorAsistencias);
+        const snapCliente = await transaccion.get(refCliente);
+
+        if (!snapCliente.exists()) {
+          throw new Error('CLIENTE_NO_EXISTE');
+        }
+
+        const datosCliente = snapCliente.data();
+        const diasActuales = Number(datosCliente?.diasDisponibles) || 0;
+        const estadoActual = datosCliente?.estado || 'Inactivo';
+
+        if (estadoActual !== 'Activo' || diasActuales <= 0) {
+          clienteSinDias = true;
+          throw new Error('SIN_DIAS_DISPONIBLES');
+        }
+
+        let ultimoId = 0;
+        if (snapContador.exists()) {
+          ultimoId = Number(snapContador.data()?.ultimoId) || 0;
+        } else {
+          asistencias.forEach((a) => {
+            const n = Number(a?.idAsistencia) || 0;
+            if (n > ultimoId) ultimoId = n;
+          });
+        }
+
+        nuevoIdAsistencia = ultimoId + 1;
+        diasRestantesCliente = Math.max(0, diasActuales - 1);
+        const nuevoEstadoCliente =
+          diasRestantesCliente > 0 ? 'Activo' : 'Inactivo';
+
+        transaccion.set(
+          refContadorAsistencias,
+          { ultimoId: nuevoIdAsistencia, fechaActualizacion: ahoraIso },
+          { merge: true }
+        );
+
+        const refNuevaAsistencia = doc(
+          db,
+          'asistencias',
+          String(nuevoIdAsistencia)
+        );
+        transaccion.set(refNuevaAsistencia, {
+          idAsistencia: nuevoIdAsistencia,
+          dniCliente: dniLimpio,
+          clienteId: clienteEncontrado.id,
+          clienteNombreCompleto,
+          fechaHoraRegistro: ahoraIso,
+          origenRegistro: 'Manual',
+          registradoPorNombre: infoUsuario.nombreCompleto,
+          registradoPorCorreo: infoUsuario.correo,
+          registradoPorUid: infoUsuario.uid,
+        });
+
+        const actualizacionCliente = {
+          diasDisponibles: diasRestantesCliente,
+          estado: nuevoEstadoCliente,
+          fechaActualizacion: ahoraIso,
+        };
+
+        if (nuevoEstadoCliente === 'Inactivo') {
+          actualizacionCliente.fechaInicioInactividad = ahoraIso;
+        }
+
+        transaccion.set(refCliente, actualizacionCliente, { merge: true });
+      });
+
+      if (clienteSinDias) {
+        setErrorDni(
+          'El cliente está Inactivo o no tiene días disponibles. Debe pagar una cuota.'
+        );
+        setErrorGeneral('No se puede registrar asistencia sin días disponibles.');
+        setGuardando(false);
+        return;
+      }
+
+      setMensajeAviso(
+        diasRestantesCliente > 0
+          ? `Asistencia #${nuevoIdAsistencia} registrada para ${clienteNombreCompleto}. Le quedan ${diasRestantesCliente} días disponibles.`
+          : `Asistencia #${nuevoIdAsistencia} registrada para ${clienteNombreCompleto}. Consumió su último día y pasó a Inactivo.`
       );
-      setMensajeAviso(`El plan "${plan.nombre}" ahora está ${nuevoEstado}.`);
-    } catch (_error) {
-      setMensajeAviso('No se pudo cambiar el estado del plan.');
+
+      setModalFormularioVisible(false);
+    } catch (error) {
+      if (error?.message === 'SIN_DIAS_DISPONIBLES') {
+        setErrorDni(
+          'El cliente está Inactivo o tiene 0 días disponibles. Debe abonar una cuota.'
+        );
+        setErrorGeneral('No se puede registrar asistencia sin días disponibles.');
+      } else {
+        setErrorGeneral('No se pudo registrar la asistencia en Firebase.');
+      }
     } finally {
       setGuardando(false);
     }
-  };
-
-  const confirmarEliminarPlan = (plan) => {
-    if (guardando) return;
-    Alert.alert(
-      'Eliminar plan',
-      `¿Seguro que querés eliminar el plan "${plan.nombre}" de forma permanente?`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Eliminar',
-          style: 'destructive',
-          onPress: async () => {
-            setGuardando(true);
-            setMensajeAviso('');
-            try {
-              await deleteDoc(doc(db, 'planes', plan.id));
-              setMensajeAviso('Plan eliminado correctamente.');
-            } catch (_error) {
-              setMensajeAviso('No se pudo eliminar el plan.');
-            } finally {
-              setGuardando(false);
-            }
-          },
-        },
-      ]
-    );
   };
 
   return (
     <View style={estilos.contenedorPrincipal}>
       {/* Encabezado superior */}
       <View style={estilos.barraSuperior}>
-        <Pressable
-          onPress={() => navigation.goBack()}
-          disabled={guardando}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          style={({ pressed }) => [
-            estilos.botonVolver,
-            pressed && estilos.botonPresionado,
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel="Volver"
-        >
-          <Ionicons name="arrow-back" size={24} color={COLORES.negro} />
-        </Pressable>
+        <View style={estilos.huecoMenuHamburguesa}>
+          <MenuHamburguesa
+            navigation={navigation}
+            rutaActual="Planes"
+            onSeccionNoHabilitada={(mensaje) => setMensajeAviso(mensaje)}
+          />
+        </View>
 
-        <Text style={estilos.tituloEncabezado}>PLANES</Text>
+        <Text style={estilos.tituloEncabezado} numberOfLines={1}>
+          PLANES
+        </Text>
 
         <Pressable
           onPress={abrirModalCrear}
           disabled={guardando}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           style={({ pressed }) => [
-            estilos.botonAgregarSuperior,
+            estilos.botonAccionSuperior,
             pressed && estilos.botonPresionado,
           ]}
           accessibilityRole="button"
-          accessibilityLabel="Nuevo plan"
+          accessibilityLabel="Crear plan"
         >
-          <Ionicons name="add" size={24} color={COLORES.blanco} />
+          <Text style={estilos.textoBotonSuperior} numberOfLines={1}>
+            Crear plan
+          </Text>
         </Pressable>
       </View>
 
@@ -414,9 +395,13 @@ export default function Planes({ navigation }) {
           </View>
         ) : null}
 
-        {errorGeneral && !modalVisible ? (
+        {errorGeneral && !modalFormularioVisible ? (
           <View style={estilos.cajaError}>
-            <Ionicons name="alert-circle-outline" size={18} color={COLORES.blanco} />
+            <Ionicons
+              name="alert-circle-outline"
+              size={18}
+              color={COLORES.blanco}
+            />
             <Text style={estilos.textoErrorBlanco}>{errorGeneral}</Text>
           </View>
         ) : null}
@@ -424,18 +409,20 @@ export default function Planes({ navigation }) {
         {cargandoLista ? (
           <View style={estilos.cajaCargando}>
             <ActivityIndicator size="large" color={COLORES.naranja} />
-            <Text style={estilos.textoCargando}>Cargando planes...</Text>
+            <Text style={estilos.textoCargando}>Cargando asistencias...</Text>
           </View>
-        ) : planes.length === 0 ? (
+        ) : asistencias.length === 0 ? (
           <View style={estilos.tarjetaVacia}>
             <Ionicons
-              name="barbell-outline"
+              name="calendar-outline"
               size={42}
               color={COLORES.maderaOscura}
             />
-            <Text style={estilos.tituloVacio}>No hay planes cargados</Text>
+            <Text style={estilos.tituloVacio}>
+              No hay asistencias registradas
+            </Text>
             <Text style={estilos.textoVacio}>
-              Creá tu primer plan mensual o por un día para comenzar a administrar las cuotas del gimnasio.
+              Tocá "Crear plan" o registrá el DNI de un cliente Activo para descontar 1 día disponible.
             </Text>
             <Pressable
               style={({ pressed }) => [
@@ -444,111 +431,157 @@ export default function Planes({ navigation }) {
               ]}
               onPress={abrirModalCrear}
             >
-              <Text style={estilos.textoBotonBlanco}>CREAR PLAN</Text>
+              <Text style={estilos.textoBotonBlanco}>
+                CREAR PLAN
+              </Text>
             </Pressable>
           </View>
         ) : (
-          planes.map((plan) => {
-            const esActivo = plan.estado === 'Activo';
-            const tieneDias =
-              plan.diasDisponibles !== undefined &&
-              plan.diasDisponibles !== null &&
-              String(plan.diasDisponibles).trim() !== '';
-
-            return (
-              <View key={plan.id} style={estilos.tarjetaPlan}>
-                <View style={estilos.filaSuperiorPlan}>
-                  <View style={estilos.infoPrincipalPlan}>
-                    <Text style={estilos.nombrePlan}>{plan.nombre}</Text>
-                    <Text style={estilos.tipoPlan}>
-                      Modalidad: {plan.tipo || 'Mensual'}
-                    </Text>
-                    <Text style={estilos.diasPlan}>
-                      Días disponibles:{' '}
-                      {tieneDias ? `${plan.diasDisponibles} días` : 'Sin asignar'}
-                    </Text>
-                  </View>
-
-                  <View
-                    style={[
-                      estilos.insigniaEstado,
-                      esActivo ? estilos.insigniaActiva : estilos.insigniaInactiva,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        estilos.textoEstado,
-                        esActivo ? estilos.textoEstadoActivo : estilos.textoEstadoInactivo,
-                      ]}
-                    >
-                      {plan.estado || 'Activo'}
-                    </Text>
-                  </View>
-                </View>
-
-                <Text style={estilos.montoPlan}>{formatearMonto(plan.monto)}</Text>
-
-                <View style={estilos.separadorTarjeta} />
-
-                <View style={estilos.filaAccionesPlan}>
-                  <Pressable
-                    style={({ pressed }) => [
-                      estilos.botonAccionSecundario,
-                      pressed && estilos.botonPresionado,
-                    ]}
-                    onPress={() => alternarEstadoPlan(plan)}
-                    disabled={guardando}
-                  >
-                    <Ionicons
-                      name={esActivo ? 'pause-circle-outline' : 'play-circle-outline'}
-                      size={18}
-                      color={COLORES.maderaOscura}
-                    />
-                    <Text style={estilos.textoAccionSecundario}>
-                      {esActivo ? 'Inactivar' : 'Activar'}
-                    </Text>
-                  </Pressable>
-
-                  <Pressable
-                    style={({ pressed }) => [
-                      estilos.botonAccionEditar,
-                      pressed && estilos.botonPresionado,
-                    ]}
-                    onPress={() => abrirModalEditar(plan)}
-                    disabled={guardando}
-                  >
-                    <Ionicons
-                      name="create-outline"
-                      size={18}
-                      color={COLORES.naranja}
-                    />
-                    <Text style={estilos.textoAccionEditar}>Editar</Text>
-                  </Pressable>
-
-                  <Pressable
-                    style={({ pressed }) => [
-                      estilos.botonAccionEliminar,
-                      pressed && estilos.botonPresionado,
-                    ]}
-                    onPress={() => confirmarEliminarPlan(plan)}
-                    disabled={guardando}
-                  >
-                    <Ionicons name="trash-outline" size={18} color="#991B1B" />
-                    <Text style={estilos.textoAccionEliminar}>Eliminar</Text>
-                  </Pressable>
-                </View>
+          asistencias.map((item) => (
+            <Pressable
+              key={item.id}
+              onPress={() => {
+                setAsistenciaSeleccionada(item);
+                setModalDetalleVisible(true);
+              }}
+              style={({ pressed }) => [
+                estilos.tarjetaAsistencia,
+                pressed && estilos.tarjetaPresionada,
+              ]}
+            >
+              <View style={estilos.filaCabeceraAsistencia}>
+                <Text style={estilos.idAsistenciaBadge}>
+                  ASISTENCIA #{item.idAsistencia}
+                </Text>
+                {item.origenRegistro === 'Cuota' ? (
+                  <Text style={estilos.badgeOrigenCuota}>Por cuota</Text>
+                ) : (
+                  <Text style={estilos.badgeOrigenManual}>Manual</Text>
+                )}
               </View>
-            );
-          })
+
+              <Text style={estilos.datoPrincipal}>
+                DNI Cliente: {item.dniCliente}
+                {item.clienteNombreCompleto
+                  ? ` · ${item.clienteNombreCompleto}`
+                  : ''}
+              </Text>
+
+              <Text style={estilos.fechaAsistencia}>
+                Fecha y hora: {formatearFechaHora(item.fechaHoraRegistro)}
+              </Text>
+
+              <View style={estilos.separadorTarjeta} />
+
+              <Pressable
+                style={({ pressed }) => [
+                  estilos.botonDetalleAsistencia,
+                  pressed && estilos.botonPresionado,
+                ]}
+                onPress={() => {
+                  setAsistenciaSeleccionada(item);
+                  setModalDetalleVisible(true);
+                }}
+              >
+                <Ionicons
+                  name="eye-outline"
+                  size={17}
+                  color={COLORES.naranja}
+                />
+                <Text style={estilos.textoDetalleAsistencia}>Ver detalle</Text>
+              </Pressable>
+            </Pressable>
+          ))
         )}
       </ScrollView>
 
-      {/* Modal para Crear / Editar Plan */}
+      {/* Ventana secundaria Ver detalle de asistencia */}
       <Modal
-        visible={modalVisible}
+        visible={modalDetalleVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setModalDetalleVisible(false)}
+      >
+        <View style={estilos.fondoModal}>
+          <View style={estilos.tarjetaModal}>
+            <View style={estilos.cabeceraModal}>
+              <Text style={estilos.tituloModal}>DETALLE DE ASISTENCIA</Text>
+              <Pressable
+                onPress={() => setModalDetalleVisible(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close" size={24} color={COLORES.negro} />
+              </Pressable>
+            </View>
+
+            {asistenciaSeleccionada ? (
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <View style={estilos.bloqueDetalle}>
+                  <Text style={estilos.etiquetaDetalle}>ID DE ASISTENCIA</Text>
+                  <Text style={estilos.valorDetalleDestacado}>
+                    #{asistenciaSeleccionada.idAsistencia}
+                  </Text>
+                </View>
+
+                <View style={estilos.bloqueDetalle}>
+                  <Text style={estilos.etiquetaDetalle}>DNI DEL CLIENTE</Text>
+                  <Text style={estilos.valorDetalle}>
+                    {asistenciaSeleccionada.dniCliente}
+                  </Text>
+                </View>
+
+                {asistenciaSeleccionada.clienteNombreCompleto ? (
+                  <View style={estilos.bloqueDetalle}>
+                    <Text style={estilos.etiquetaDetalle}>CLIENTE</Text>
+                    <Text style={estilos.valorDetalle}>
+                      {asistenciaSeleccionada.clienteNombreCompleto}
+                    </Text>
+                  </View>
+                ) : null}
+
+                <View style={estilos.bloqueDetalle}>
+                  <Text style={estilos.etiquetaDetalle}>
+                    FECHA Y HORA DE REGISTRO
+                  </Text>
+                  <Text style={estilos.valorDetalle}>
+                    {formatearFechaHora(
+                      asistenciaSeleccionada.fechaHoraRegistro
+                    )}
+                  </Text>
+                </View>
+
+                <View style={estilos.bloqueDetalle}>
+                  <Text style={estilos.etiquetaDetalle}>
+                    USUARIO QUE REGISTRÓ LA ASISTENCIA
+                  </Text>
+                  <Text style={estilos.valorDetalle}>
+                    {asistenciaSeleccionada.registradoPorNombre ||
+                      'Administrador'}
+                  </Text>
+                </View>
+
+                <Pressable
+                  style={({ pressed }) => [
+                    estilos.botonGuardar,
+                    estilos.margenSuperiorBoton,
+                    pressed && estilos.botonPresionado,
+                  ]}
+                  onPress={() => setModalDetalleVisible(false)}
+                >
+                  <Text style={estilos.textoBotonBlanco}>CERRAR</Text>
+                </Pressable>
+              </ScrollView>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal Registrar Asistencia */}
+      <Modal
+        visible={modalFormularioVisible}
         transparent
         animationType="fade"
-        onRequestClose={cerrarModal}
+        onRequestClose={cerrarModalFormulario}
       >
         <KeyboardAvoidingView
           style={estilos.fondoModal}
@@ -556,11 +589,9 @@ export default function Planes({ navigation }) {
         >
           <View style={estilos.tarjetaModal}>
             <View style={estilos.cabeceraModal}>
-              <Text style={estilos.tituloModal}>
-                {planEditando ? 'EDITAR PLAN' : 'NUEVO PLAN'}
-              </Text>
+              <Text style={estilos.tituloModal}>REGISTRAR ASISTENCIA</Text>
               <Pressable
-                onPress={cerrarModal}
+                onPress={cerrarModalFormulario}
                 disabled={guardando}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
@@ -583,106 +614,44 @@ export default function Planes({ navigation }) {
                 </View>
               ) : null}
 
-              {/* Nombre del plan */}
-              <View style={estilos.grupoCampo}>
-                <Text style={estilos.etiqueta}>NOMBRE DEL PLAN</Text>
-                <TextInput
-                  style={[
-                    estilos.input,
-                    errorNombre ? estilos.bordeError : null,
-                  ]}
-                  value={nombrePlan}
-                  onChangeText={(texto) => {
-                    setNombrePlan(texto);
-                    setErrorGeneral('');
-                    if (errorNombre) validarNombrePlan(texto, true);
-                  }}
-                  onBlur={() => validarNombrePlan(nombrePlan, true)}
-                  placeholder="Ej. Pase Libre Mensual"
-                  placeholderTextColor="#6E706D"
-                  maxLength={LIMITE_NOMBRE_PLAN}
-                  editable={!guardando}
-                />
-                {errorNombre ? (
-                  <Text style={estilos.textoErrorCampo}>{errorNombre}</Text>
-                ) : null}
-              </View>
-
-              {/* Monto (máx. 6 caracteres) */}
+              {/* ID Autoincremental automático */}
               <View style={estilos.grupoCampo}>
                 <Text style={estilos.etiqueta}>
-                  MONTO ($) (MÁX. {LIMITE_MONTO_CARACTERES} CAR.)
+                  ID DE ASISTENCIA (AUTOINCREMENTAL)
                 </Text>
-                <TextInput
-                  style={[
-                    estilos.input,
-                    errorMonto ? estilos.bordeError : null,
-                  ]}
-                  value={montoPlan}
-                  onChangeText={manejarCambioMonto}
-                  onBlur={() => validarMontoPlan(montoPlan, true)}
-                  placeholder="Ej. 25000"
-                  placeholderTextColor="#6E706D"
-                  keyboardType="decimal-pad"
-                  maxLength={LIMITE_MONTO_CARACTERES}
-                  editable={!guardando}
-                />
-                {errorMonto ? (
-                  <Text style={estilos.textoErrorCampo}>{errorMonto}</Text>
-                ) : null}
-              </View>
-
-              {/* Días disponibles (solo números) */}
-              <View style={estilos.grupoCampo}>
-                <Text style={estilos.etiqueta}>DÍAS DISPONIBLES (SOLO NÚMEROS)</Text>
-                <TextInput
-                  style={[
-                    estilos.input,
-                    errorDias ? estilos.bordeError : null,
-                  ]}
-                  value={diasDisponibles}
-                  onChangeText={manejarCambioDias}
-                  onBlur={() => validarDiasDisponibles(diasDisponibles, true)}
-                  placeholder="Ej. 30 o 1"
-                  placeholderTextColor="#6E706D"
-                  keyboardType="number-pad"
-                  maxLength={LIMITE_DIAS_CARACTERES}
-                  editable={!guardando}
-                />
-                {errorDias ? (
-                  <Text style={estilos.textoErrorCampo}>{errorDias}</Text>
-                ) : null}
-              </View>
-
-              {/* Tipo: Mensual o Por un día */}
-              <View style={estilos.grupoCampo}>
-                <Text style={estilos.etiqueta}>TIPO DE PLAN</Text>
-                <View style={estilos.filaOpciones}>
-                  {TIPOS_PLAN.map((opcion) => {
-                    const seleccionada = tipoPlan === opcion;
-                    return (
-                      <Pressable
-                        key={opcion}
-                        style={[
-                          estilos.opcionSelector,
-                          seleccionada && estilos.opcionSeleccionada,
-                        ]}
-                        onPress={() => setTipoPlan(opcion)}
-                        disabled={guardando}
-                      >
-                        <Text
-                          style={[
-                            estilos.textoOpcion,
-                            seleccionada && estilos.textoOpcionSeleccionada,
-                          ]}
-                        >
-                          {opcion}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
+                <View style={estilos.cajaIdAuto}>
+                  <Text style={estilos.textoIdAuto}>#{siguienteIdPreview}</Text>
+                  <Text style={estilos.notaAuto}>Asignación automática</Text>
                 </View>
               </View>
+
+              {/* DNI del cliente */}
+              <View style={estilos.grupoCampo}>
+                <Text style={estilos.etiqueta}>DNI DEL CLIENTE</Text>
+                <TextInput
+                  style={[estilos.input, errorDni ? estilos.bordeError : null]}
+                  value={dniCliente}
+                  onChangeText={(texto) => {
+                    const soloNumeros = texto.replace(/[^0-9]/g, '');
+                    setDniCliente(soloNumeros);
+                    setErrorGeneral('');
+                    if (errorDni) validarDni(soloNumeros, true);
+                  }}
+                  onBlur={() => validarDni(dniCliente, true)}
+                  placeholder="Ingrese DNI del cliente"
+                  placeholderTextColor="#6E706D"
+                  keyboardType="number-pad"
+                  maxLength={8}
+                  editable={!guardando}
+                />
+                {errorDni ? (
+                  <Text style={estilos.textoErrorCampo}>{errorDni}</Text>
+                ) : null}
+              </View>
+
+              <Text style={estilos.notaReglaAsistencia}>
+                Al registrar la asistencia se descontará 1 día disponible del cliente. Si llega a 0 días, pasará automáticamente a Inactivo.
+              </Text>
 
               <View style={estilos.contenedorBotonesModal}>
                 <Pressable
@@ -691,14 +660,14 @@ export default function Planes({ navigation }) {
                     pressed && !guardando && estilos.botonPresionado,
                     guardando && estilos.botonDeshabilitado,
                   ]}
-                  onPress={guardarPlan}
+                  onPress={registrarAsistencia}
                   disabled={guardando}
                 >
                   {guardando ? (
                     <ActivityIndicator size="small" color={COLORES.blanco} />
                   ) : (
                     <Text style={estilos.textoBotonBlanco}>
-                      {planEditando ? 'GUARDAR CAMBIOS' : 'CREAR PLAN'}
+                      REGISTRAR ASISTENCIA
                     </Text>
                   )}
                 </Pressable>
@@ -708,7 +677,7 @@ export default function Planes({ navigation }) {
                     estilos.botonCancelar,
                     pressed && !guardando && estilos.botonPresionado,
                   ]}
-                  onPress={cerrarModal}
+                  onPress={cerrarModalFormulario}
                   disabled={guardando}
                 >
                   <Text style={estilos.textoBotonOscuro}>CANCELAR</Text>
@@ -744,29 +713,33 @@ const estilos = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLORES.grisMedio,
   },
-  botonVolver: {
+  huecoMenuHamburguesa: {
     width: 42,
     height: 42,
-    borderRadius: 12,
-    backgroundColor: COLORES.blanco,
-    borderWidth: 1.5,
-    borderColor: COLORES.grisMedio,
     justifyContent: 'center',
     alignItems: 'center',
   },
   tituloEncabezado: {
+    flex: 1,
+    textAlign: 'center',
     fontFamily: 'Montserrat_800ExtraBold',
-    fontSize: 16,
+    fontSize: 14,
     color: COLORES.negro,
-    letterSpacing: 0.6,
+    letterSpacing: 0.3,
+    marginHorizontal: 4,
   },
-  botonAgregarSuperior: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
+  botonAccionSuperior: {
+    minHeight: 38,
+    paddingHorizontal: 10,
+    borderRadius: 11,
     backgroundColor: COLORES.naranja,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  textoBotonSuperior: {
+    fontFamily: 'Montserrat_700Bold',
+    fontSize: 11,
+    color: COLORES.blanco,
   },
   contenidoScroll: {
     flexGrow: 1,
@@ -789,7 +762,7 @@ const estilos = StyleSheet.create({
   textoAviso: {
     flex: 1,
     fontFamily: 'Poppins_500Medium',
-    fontSize: 13,
+    fontSize: 12.5,
     color: COLORES.maderaOscura,
   },
   cajaError: {
@@ -849,7 +822,7 @@ const estilos = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  tarjetaPlan: {
+  tarjetaAsistencia: {
     backgroundColor: COLORES.blanco,
     borderRadius: 18,
     borderWidth: 1.5,
@@ -857,122 +830,80 @@ const estilos = StyleSheet.create({
     padding: 16,
     marginBottom: 14,
   },
-  filaSuperiorPlan: {
+  tarjetaPresionada: {
+    backgroundColor: '#FFF7ED',
+  },
+  filaCabeceraAsistencia: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 10,
+    marginBottom: 6,
   },
-  infoPrincipalPlan: {
-    flex: 1,
-  },
-  nombrePlan: {
-    fontFamily: 'Montserrat_700Bold',
-    fontSize: 16,
-    color: COLORES.negro,
-  },
-  tipoPlan: {
-    fontFamily: 'Poppins_500Medium',
+  idAsistenciaBadge: {
+    fontFamily: 'Montserrat_800ExtraBold',
     fontSize: 13,
     color: COLORES.maderaOscura,
-    marginTop: 2,
-  },
-  diasPlan: {
-    fontFamily: 'Poppins_600SemiBold',
-    fontSize: 12.5,
-    color: COLORES.maderaOscura,
-    marginTop: 2,
-  },
-  insigniaEstado: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
+    backgroundColor: '#FFFBEB',
     borderWidth: 1,
+    borderColor: COLORES.amarilloDorado,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 999,
   },
-  insigniaActiva: {
-    backgroundColor: '#F0FDF4',
-    borderColor: '#15803D',
-  },
-  insigniaInactiva: {
-    backgroundColor: '#FEF2F2',
-    borderColor: '#991B1B',
-  },
-  textoEstado: {
+  badgeOrigenCuota: {
     fontFamily: 'Poppins_600SemiBold',
     fontSize: 11.5,
-  },
-  textoEstadoActivo: {
     color: '#15803D',
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#15803D',
+    paddingHorizontal: 9,
+    paddingVertical: 2,
+    borderRadius: 999,
   },
-  textoEstadoInactivo: {
-    color: '#991B1B',
-  },
-  montoPlan: {
-    fontFamily: 'Montserrat_800ExtraBold',
-    fontSize: 20,
+  badgeOrigenManual: {
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 11.5,
     color: COLORES.naranja,
-    marginTop: 10,
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: COLORES.naranja,
+    paddingHorizontal: 9,
+    paddingVertical: 2,
+    borderRadius: 999,
+  },
+  datoPrincipal: {
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 14,
+    color: COLORES.negro,
+    marginTop: 2,
+  },
+  fechaAsistencia: {
+    fontFamily: 'Poppins_400Regular',
+    fontSize: 12.5,
+    color: '#52525B',
+    marginTop: 3,
   },
   separadorTarjeta: {
     height: 1,
     backgroundColor: COLORES.grisMedio,
-    marginVertical: 12,
+    marginVertical: 11,
   },
-  filaAccionesPlan: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  botonAccionSecundario: {
-    flex: 1,
+  botonDetalleAsistencia: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
-    paddingVertical: 8,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: COLORES.maderaOscura,
-    backgroundColor: COLORES.blanco,
-  },
-  textoAccionSecundario: {
-    fontFamily: 'Poppins_600SemiBold',
-    fontSize: 12,
-    color: COLORES.maderaOscura,
-  },
-  botonAccionEditar: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
+    gap: 5,
     paddingVertical: 8,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: COLORES.naranja,
     backgroundColor: '#FFF7ED',
   },
-  textoAccionEditar: {
+  textoDetalleAsistencia: {
     fontFamily: 'Poppins_600SemiBold',
-    fontSize: 12,
+    fontSize: 12.5,
     color: COLORES.naranja,
-  },
-  botonAccionEliminar: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    paddingVertical: 8,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#991B1B',
-    backgroundColor: '#FEF2F2',
-  },
-  textoAccionEliminar: {
-    fontFamily: 'Poppins_600SemiBold',
-    fontSize: 12,
-    color: '#991B1B',
   },
   fondoModal: {
     flex: 1,
@@ -1000,14 +931,57 @@ const estilos = StyleSheet.create({
     fontSize: 16,
     color: COLORES.negro,
   },
+  bloqueDetalle: {
+    marginBottom: 12,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORES.grisMedio,
+  },
+  etiquetaDetalle: {
+    fontFamily: 'Montserrat_700Bold',
+    fontSize: 11.5,
+    color: COLORES.maderaOscura,
+    marginBottom: 2,
+  },
+  valorDetalle: {
+    fontFamily: 'Poppins_500Medium',
+    fontSize: 14.5,
+    color: COLORES.negro,
+  },
+  valorDetalleDestacado: {
+    fontFamily: 'Montserrat_800ExtraBold',
+    fontSize: 16,
+    color: COLORES.naranja,
+  },
   grupoCampo: {
-    marginBottom: 14,
+    marginBottom: 13,
   },
   etiqueta: {
     fontFamily: 'Montserrat_700Bold',
-    fontSize: 12,
+    fontSize: 11.5,
     color: COLORES.negro,
-    marginBottom: 6,
+    marginBottom: 5,
+  },
+  cajaIdAuto: {
+    minHeight: 45,
+    backgroundColor: '#F5F5F4',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: COLORES.grisMedio,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  textoIdAuto: {
+    fontFamily: 'Montserrat_800ExtraBold',
+    fontSize: 15,
+    color: COLORES.negro,
+  },
+  notaAuto: {
+    fontFamily: 'Poppins_500Medium',
+    fontSize: 11.5,
+    color: COLORES.maderaOscura,
   },
   input: {
     minHeight: 46,
@@ -1031,36 +1005,19 @@ const estilos = StyleSheet.create({
     fontSize: 11.5,
     color: '#991B1B',
   },
-  filaOpciones: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  opcionSelector: {
-    flex: 1,
-    minHeight: 42,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: COLORES.grisMedio,
-    backgroundColor: COLORES.blanco,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-  },
-  opcionSeleccionada: {
-    borderColor: COLORES.naranja,
-    backgroundColor: '#FFF7ED',
-  },
-  textoOpcion: {
-    fontFamily: 'Poppins_600SemiBold',
-    fontSize: 13,
+  notaReglaAsistencia: {
+    fontFamily: 'Poppins_500Medium',
+    fontSize: 12,
     color: COLORES.maderaOscura,
-  },
-  textoOpcionSeleccionada: {
-    color: COLORES.naranja,
+    lineHeight: 18,
+    marginBottom: 6,
   },
   contenedorBotonesModal: {
-    marginTop: 8,
+    marginTop: 10,
     gap: 10,
+  },
+  margenSuperiorBoton: {
+    marginTop: 10,
   },
   botonGuardar: {
     minHeight: 48,
