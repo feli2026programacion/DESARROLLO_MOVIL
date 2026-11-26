@@ -49,8 +49,10 @@ const COLORES = {
   grisMedio: '#BDBFBC',
 };
 
-const LIMITE_NOMBRE_APELLIDO = 30;
-const LIMITE_DNI = 8;
+const MIN_NOMBRE_APELLIDO = 3;
+const MAX_NOMBRE_APELLIDO = 30;
+const MIN_DNI = 8;
+const MAX_DNI = 9;
 const LIMITE_TELEFONO = 15;
 
 const REGEX_SOLO_LETRAS = /^[A-Za-zÁÉÍÓÚáéíóúÜüÑñ\s]+$/;
@@ -224,9 +226,15 @@ export default function Clientes({ navigation }) {
       if (mostrar) setErrorDni('El DNI solo puede contener números');
       return false;
     }
-    if (limpio.length < 7 || limpio.length > LIMITE_DNI) {
+    if (limpio.length < MIN_DNI) {
       if (mostrar) {
-        setErrorDni(`El DNI debe tener entre 7 y ${LIMITE_DNI} dígitos`);
+        setErrorDni(`El DNI debe tener al menos ${MIN_DNI} dígitos`);
+      }
+      return false;
+    }
+    if (limpio.length > MAX_DNI) {
+      if (mostrar) {
+        setErrorDni(`El DNI no puede superar los ${MAX_DNI} dígitos`);
       }
       return false;
     }
@@ -246,9 +254,19 @@ export default function Clientes({ navigation }) {
       }
       return false;
     }
-    if (limpio.length > LIMITE_NOMBRE_APELLIDO) {
+    if (limpio.length < MIN_NOMBRE_APELLIDO) {
       if (mostrar) {
-        setErrorNombre(`Máximo ${LIMITE_NOMBRE_APELLIDO} caracteres`);
+        setErrorNombre(
+          `El nombre debe tener al menos ${MIN_NOMBRE_APELLIDO} caracteres`
+        );
+      }
+      return false;
+    }
+    if (limpio.length > MAX_NOMBRE_APELLIDO) {
+      if (mostrar) {
+        setErrorNombre(
+          `El nombre no puede superar los ${MAX_NOMBRE_APELLIDO} caracteres`
+        );
       }
       return false;
     }
@@ -268,9 +286,19 @@ export default function Clientes({ navigation }) {
       }
       return false;
     }
-    if (limpio.length > LIMITE_NOMBRE_APELLIDO) {
+    if (limpio.length < MIN_NOMBRE_APELLIDO) {
       if (mostrar) {
-        setErrorApellido(`Máximo ${LIMITE_NOMBRE_APELLIDO} caracteres`);
+        setErrorApellido(
+          `El apellido debe tener al menos ${MIN_NOMBRE_APELLIDO} caracteres`
+        );
+      }
+      return false;
+    }
+    if (limpio.length > MAX_NOMBRE_APELLIDO) {
+      if (mostrar) {
+        setErrorApellido(
+          `El apellido no puede superar los ${MAX_NOMBRE_APELLIDO} caracteres`
+        );
       }
       return false;
     }
@@ -1008,7 +1036,7 @@ export default function Clientes({ navigation }) {
               ) : null}
 
               <View style={estilos.grupoCampo}>
-                <Text style={estilos.etiqueta}>DNI (SOLO NÚMEROS)</Text>
+                <Text style={estilos.etiqueta}>DNI</Text>
                 <TextInput
                   style={[estilos.input, errorDni ? estilos.bordeError : null]}
                   value={dni}
@@ -1016,13 +1044,19 @@ export default function Clientes({ navigation }) {
                     const soloDigitos = texto.replace(/[^0-9]/g, '');
                     setDni(soloDigitos);
                     setErrorGeneral('');
-                    if (errorDni) validarDni(soloDigitos, true);
+                    if (soloDigitos.length > MAX_DNI) {
+                      setErrorDni(
+                        `El DNI no puede superar los ${MAX_DNI} dígitos`
+                      );
+                    } else if (errorDni) {
+                      validarDni(soloDigitos, true);
+                    }
                   }}
                   onBlur={() => validarDni(dni, true)}
                   placeholder="Ej. 40123456"
                   placeholderTextColor="#6E706D"
                   keyboardType="number-pad"
-                  maxLength={LIMITE_DNI}
+                  maxLength={MAX_DNI}
                   editable={!guardando}
                 />
                 {errorDni ? (
@@ -1031,23 +1065,27 @@ export default function Clientes({ navigation }) {
               </View>
 
               <View style={estilos.grupoCampo}>
-                <Text style={estilos.etiqueta}>
-                  NOMBRE (MÁX. {LIMITE_NOMBRE_APELLIDO} CAR.)
-                </Text>
+                <Text style={estilos.etiqueta}>NOMBRE</Text>
                 <TextInput
                   style={[estilos.input, errorNombre ? estilos.bordeError : null]}
                   value={nombre}
                   onChangeText={(texto) => {
                     setNombre(texto);
                     setErrorGeneral('');
-                    if (errorNombre) validarNombre(texto, true);
+                    if (texto.trim().length > MAX_NOMBRE_APELLIDO) {
+                      setErrorNombre(
+                        `El nombre no puede superar los ${MAX_NOMBRE_APELLIDO} caracteres`
+                      );
+                    } else if (errorNombre) {
+                      validarNombre(texto, true);
+                    }
                   }}
                   onBlur={() => validarNombre(nombre, true)}
                   placeholder="Ej. Lucas"
                   placeholderTextColor="#6E706D"
                   autoCapitalize="words"
                   autoCorrect={false}
-                  maxLength={LIMITE_NOMBRE_APELLIDO}
+                  maxLength={MAX_NOMBRE_APELLIDO}
                   editable={!guardando}
                 />
                 {errorNombre ? (
@@ -1056,23 +1094,27 @@ export default function Clientes({ navigation }) {
               </View>
 
               <View style={estilos.grupoCampo}>
-                <Text style={estilos.etiqueta}>
-                  APELLIDO (MÁX. {LIMITE_NOMBRE_APELLIDO} CAR.)
-                </Text>
+                <Text style={estilos.etiqueta}>APELLIDO</Text>
                 <TextInput
                   style={[estilos.input, errorApellido ? estilos.bordeError : null]}
                   value={apellido}
                   onChangeText={(texto) => {
                     setApellido(texto);
                     setErrorGeneral('');
-                    if (errorApellido) validarApellido(texto, true);
+                    if (texto.trim().length > MAX_NOMBRE_APELLIDO) {
+                      setErrorApellido(
+                        `El apellido no puede superar los ${MAX_NOMBRE_APELLIDO} caracteres`
+                      );
+                    } else if (errorApellido) {
+                      validarApellido(texto, true);
+                    }
                   }}
                   onBlur={() => validarApellido(apellido, true)}
                   placeholder="Ej. Gómez"
                   placeholderTextColor="#6E706D"
                   autoCapitalize="words"
                   autoCorrect={false}
-                  maxLength={LIMITE_NOMBRE_APELLIDO}
+                  maxLength={MAX_NOMBRE_APELLIDO}
                   editable={!guardando}
                 />
                 {errorApellido ? (

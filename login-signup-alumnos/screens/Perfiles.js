@@ -24,16 +24,7 @@ import {
   Poppins_500Medium,
   Poppins_600SemiBold,
 } from '@expo-google-fonts/poppins';
-import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  query,
-  setDoc,
-  where,
-} from 'firebase/firestore';
-import { updateEmail } from 'firebase/auth';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db, isFirebaseConfigured } from '../src/config/firebaseConfig';
 
 const COLORES = {
@@ -45,8 +36,10 @@ const COLORES = {
   grisMedio: '#BDBFBC',
 };
 
+const MIN_NOMBRE_APELLIDO = 3;
+const MAX_NOMBRE_APELLIDO = 30;
+
 const REGEX_SOLO_LETRAS = /^[A-Za-zÁÉÍÓÚáéíóúÜüÑñ\s]+$/;
-const REGEX_CORREO = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 
 export default function Perfiles({ navigation }) {
   const [fuentesCargadas] = useFonts({
@@ -65,13 +58,11 @@ export default function Perfiles({ navigation }) {
   const [nombre, setNombre] = useState('');
   const [apellido, setApellido] = useState('');
   const [correo, setCorreo] = useState('');
-  const [correoOriginal, setCorreoOriginal] = useState('');
   const [rol, setRol] = useState('Administrador');
   const [imagen, setImagen] = useState('');
 
   const [errorNombre, setErrorNombre] = useState('');
   const [errorApellido, setErrorApellido] = useState('');
-  const [errorCorreo, setErrorCorreo] = useState('');
   const [errorGeneral, setErrorGeneral] = useState('');
   const [mensajeExito, setMensajeExito] = useState('');
 
@@ -102,17 +93,14 @@ export default function Perfiles({ navigation }) {
           setNombre(datos?.nombre || '');
           setApellido(datos?.apellido || '');
           setCorreo(correoDoc);
-          setCorreoOriginal(correoDoc);
           setRol(datos?.rol || 'Administrador');
           setImagen(datos?.imagen || '');
         } else {
           setCorreo(correoInicial);
-          setCorreoOriginal(correoInicial);
         }
       } catch (_error) {
         if (activo) {
           setCorreo(correoInicial);
-          setCorreoOriginal(correoInicial);
           setErrorGeneral('No se pudieron cargar todos los datos del perfil.');
         }
       } finally {
@@ -145,7 +133,25 @@ export default function Perfiles({ navigation }) {
     }
     if (!REGEX_SOLO_LETRAS.test(limpio)) {
       if (mostrar) {
-        setErrorNombre('El nombre solo puede contener letras y espacios (sin números ni símbolos)');
+        setErrorNombre(
+          'El nombre solo puede contener letras y espacios (sin números ni símbolos)'
+        );
+      }
+      return false;
+    }
+    if (limpio.length < MIN_NOMBRE_APELLIDO) {
+      if (mostrar) {
+        setErrorNombre(
+          `El nombre debe tener al menos ${MIN_NOMBRE_APELLIDO} caracteres`
+        );
+      }
+      return false;
+    }
+    if (limpio.length > MAX_NOMBRE_APELLIDO) {
+      if (mostrar) {
+        setErrorNombre(
+          `El nombre no puede superar los ${MAX_NOMBRE_APELLIDO} caracteres`
+        );
       }
       return false;
     }
@@ -161,25 +167,29 @@ export default function Perfiles({ navigation }) {
     }
     if (!REGEX_SOLO_LETRAS.test(limpio)) {
       if (mostrar) {
-        setErrorApellido('El apellido solo puede contener letras y espacios (sin números ni símbolos)');
+        setErrorApellido(
+          'El apellido solo puede contener letras y espacios (sin números ni símbolos)'
+        );
+      }
+      return false;
+    }
+    if (limpio.length < MIN_NOMBRE_APELLIDO) {
+      if (mostrar) {
+        setErrorApellido(
+          `El apellido debe tener al menos ${MIN_NOMBRE_APELLIDO} caracteres`
+        );
+      }
+      return false;
+    }
+    if (limpio.length > MAX_NOMBRE_APELLIDO) {
+      if (mostrar) {
+        setErrorApellido(
+          `El apellido no puede superar los ${MAX_NOMBRE_APELLIDO} caracteres`
+        );
       }
       return false;
     }
     setErrorApellido('');
-    return true;
-  };
-
-  const validarFormatoCorreo = (valor, mostrar = false) => {
-    const limpio = valor.trim().toLowerCase();
-    if (!limpio) {
-      if (mostrar) setErrorCorreo('Ingrese su correo electrónico');
-      return false;
-    }
-    if (!REGEX_CORREO.test(limpio)) {
-      if (mostrar) setErrorCorreo('Ingrese un correo electrónico válido');
-      return false;
-    }
-    setErrorCorreo('');
     return true;
   };
 
@@ -221,21 +231,6 @@ export default function Perfiles({ navigation }) {
     }
   };
 
-  const verificarCorreoDisponible = async (correoNormalizado, uidActual) => {
-    const refColeccion = collection(db, 'usuarios');
-    const consulta = query(refColeccion, where('correo', '==', correoNormalizado));
-    const snapshot = await getDocs(consulta);
-
-    let existeEnOtroUsuario = false;
-    snapshot.forEach((documento) => {
-      if (documento.id !== uidActual) {
-        existeEnOtroUsuario = true;
-      }
-    });
-
-    return !existeEnOtroUsuario;
-  };
-
   const guardarCambios = async () => {
     if (guardando) return;
 
@@ -244,57 +239,26 @@ export default function Perfiles({ navigation }) {
 
     const usuarioActual = auth.currentUser;
     if (!usuarioActual || !isFirebaseConfigured) {
-      setErrorGeneral('No se pudo verificar la sesión o la configuración de Firebase.');
+      setErrorGeneral(
+        'No se pudo verificar la sesión o la configuración de Firebase.'
+      );
       return;
     }
 
     const nombreLimpio = nombre.trim();
     const apellidoLimpio = apellido.trim();
-    const correoNormalizado = correo.trim().toLowerCase();
+    const correoFijo = (usuarioActual.email || correo || '').trim().toLowerCase();
 
     const nombreOk = validarNombre(nombreLimpio, true);
     const apellidoOk = validarApellido(apellidoLimpio, true);
-    const correoOk = validarFormatoCorreo(correoNormalizado, true);
 
-    if (!nombreOk || !apellidoOk || !correoOk) {
+    if (!nombreOk || !apellidoOk) {
       setErrorGeneral('Revise los campos marcados antes de guardar.');
       return;
     }
 
     setGuardando(true);
     try {
-      if (correoNormalizado !== correoOriginal) {
-        const disponible = await verificarCorreoDisponible(
-          correoNormalizado,
-          usuarioActual.uid
-        );
-        if (!disponible) {
-          setErrorCorreo('Este correo electrónico ya está registrado en el sistema');
-          setErrorGeneral('Elija otro correo electrónico que no esté en uso.');
-          setGuardando(false);
-          return;
-        }
-
-        try {
-          await updateEmail(usuarioActual, correoNormalizado);
-        } catch (authErr) {
-          const codigoAuth = authErr?.code || '';
-          if (codigoAuth === 'auth/requires-recent-login') {
-            setErrorGeneral(
-              'Por seguridad, cierre sesión y vuelva a iniciar sesión para cambiar su correo electrónico.'
-            );
-            setGuardando(false);
-            return;
-          }
-          if (codigoAuth === 'auth/email-already-in-use') {
-            setErrorCorreo('Este correo electrónico ya está registrado en el sistema');
-            setGuardando(false);
-            return;
-          }
-          throw authErr;
-        }
-      }
-
       const refDoc = doc(db, 'usuarios', usuarioActual.uid);
       await setDoc(
         refDoc,
@@ -302,7 +266,7 @@ export default function Perfiles({ navigation }) {
           uid: usuarioActual.uid,
           nombre: nombreLimpio,
           apellido: apellidoLimpio,
-          correo: correoNormalizado,
+          correo: correoFijo,
           rol: rol || 'Administrador',
           imagen: imagen || '',
           fechaActualizacion: new Date().toISOString(),
@@ -312,8 +276,7 @@ export default function Perfiles({ navigation }) {
 
       setNombre(nombreLimpio);
       setApellido(apellidoLimpio);
-      setCorreo(correoNormalizado);
-      setCorreoOriginal(correoNormalizado);
+      setCorreo(correoFijo);
       setModoEdicion(false);
       setMensajeExito('Perfil actualizado correctamente.');
     } catch (_error) {
@@ -329,9 +292,7 @@ export default function Perfiles({ navigation }) {
     setModoEdicion(false);
     setErrorNombre('');
     setErrorApellido('');
-    setErrorCorreo('');
     setErrorGeneral('');
-    setCorreo(correoOriginal);
   };
 
   return (
@@ -450,13 +411,20 @@ export default function Perfiles({ navigation }) {
                       setNombre(texto);
                       setErrorGeneral('');
                       setMensajeExito('');
-                      if (errorNombre) validarNombre(texto, true);
+                      if (texto.trim().length > MAX_NOMBRE_APELLIDO) {
+                        setErrorNombre(
+                          `El nombre no puede superar los ${MAX_NOMBRE_APELLIDO} caracteres`
+                        );
+                      } else if (errorNombre) {
+                        validarNombre(texto, true);
+                      }
                     }}
                     onBlur={() => validarNombre(nombre, true)}
                     placeholder="Ingrese su nombre"
                     placeholderTextColor="#6E706D"
                     autoCapitalize="words"
                     autoCorrect={false}
+                    maxLength={MAX_NOMBRE_APELLIDO}
                     editable={!guardando}
                   />
                 ) : (
@@ -483,13 +451,20 @@ export default function Perfiles({ navigation }) {
                       setApellido(texto);
                       setErrorGeneral('');
                       setMensajeExito('');
-                      if (errorApellido) validarApellido(texto, true);
+                      if (texto.trim().length > MAX_NOMBRE_APELLIDO) {
+                        setErrorApellido(
+                          `El apellido no puede superar los ${MAX_NOMBRE_APELLIDO} caracteres`
+                        );
+                      } else if (errorApellido) {
+                        validarApellido(texto, true);
+                      }
                     }}
                     onBlur={() => validarApellido(apellido, true)}
                     placeholder="Ingrese su apellido"
                     placeholderTextColor="#6E706D"
                     autoCapitalize="words"
                     autoCorrect={false}
+                    maxLength={MAX_NOMBRE_APELLIDO}
                     editable={!guardando}
                   />
                 ) : (
@@ -502,38 +477,12 @@ export default function Perfiles({ navigation }) {
                 ) : null}
               </View>
 
-              {/* Campo Correo Electrónico */}
+              {/* Campo Correo Electrónico (solo lectura, no editable) */}
               <View style={estilos.grupoCampo}>
                 <Text style={estilos.etiqueta}>CORREO ELECTRÓNICO</Text>
-                {modoEdicion ? (
-                  <TextInput
-                    style={[
-                      estilos.input,
-                      errorCorreo ? estilos.bordeError : null,
-                    ]}
-                    value={correo}
-                    onChangeText={(texto) => {
-                      setCorreo(texto);
-                      setErrorGeneral('');
-                      setMensajeExito('');
-                      if (errorCorreo) validarFormatoCorreo(texto, true);
-                    }}
-                    onBlur={() => validarFormatoCorreo(correo, true)}
-                    placeholder="correo@ejemplo.com"
-                    placeholderTextColor="#6E706D"
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    editable={!guardando}
-                  />
-                ) : (
-                  <View style={estilos.cajaDato}>
-                    <Text style={estilos.textoDato}>{correo || '-'}</Text>
-                  </View>
-                )}
-                {errorCorreo ? (
-                  <Text style={estilos.textoError}>{errorCorreo}</Text>
-                ) : null}
+                <View style={estilos.cajaDatoBloqueado}>
+                  <Text style={estilos.textoDatoBloqueado}>{correo || '-'}</Text>
+                </View>
               </View>
 
               {/* Campo Rol (solo lectura) */}

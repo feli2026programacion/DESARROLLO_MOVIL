@@ -39,7 +39,12 @@ const COLORES = {
   amarilloDorado: '#FDB813',
   maderaOscura: '#3D2B1F',
   grisMedio: '#BDBFBC',
+  bordeActivo: '#D97706',
+  fondoActivo: '#FFFBEB',
 };
+
+const MIN_NOMBRE_APELLIDO = 3;
+const MAX_NOMBRE_APELLIDO = 30;
 
 const REGEX_SOLO_LETRAS = /^[A-Za-zÁÉÍÓÚáéíóúÜüÑñ\s]+$/;
 const REGEX_CORREO = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
@@ -71,6 +76,7 @@ export default function SignUp({ navigation }) {
   const [confirmarContrasena, setConfirmarContrasena] = useState('');
   const [aceptaTerminos, setAceptaTerminos] = useState(false);
 
+  const [campoEnfocado, setCampoEnfocado] = useState('');
   const [mostrarContrasena, setMostrarContrasena] = useState(false);
   const [mostrarConfirmar, setMostrarConfirmar] = useState(false);
 
@@ -94,6 +100,7 @@ export default function SignUp({ navigation }) {
   }
 
   const irAlCampo = (clave) => {
+    setCampoEnfocado(clave);
     const posicionY = posicionesCampos.current[clave];
     if (typeof posicionY === 'number') {
       setTimeout(() => {
@@ -103,6 +110,12 @@ export default function SignUp({ navigation }) {
         });
       }, 120);
     }
+  };
+
+  const estiloInputEstado = (clave, tieneError, tieneValor) => {
+    if (tieneError) return estilos.bordeErrorInput;
+    if (campoEnfocado === clave || tieneValor) return estilos.bordeCreacionInput;
+    return null;
   };
 
   const cumpleLongitud = contrasena.length >= 8;
@@ -122,6 +135,22 @@ export default function SignUp({ navigation }) {
       }
       return false;
     }
+    if (limpio.length < MIN_NOMBRE_APELLIDO) {
+      if (mostrar || intentoEnvio) {
+        setErrorNombre(
+          `El nombre debe tener al menos ${MIN_NOMBRE_APELLIDO} caracteres`
+        );
+      }
+      return false;
+    }
+    if (limpio.length > MAX_NOMBRE_APELLIDO) {
+      if (mostrar || intentoEnvio) {
+        setErrorNombre(
+          `El nombre no puede superar los ${MAX_NOMBRE_APELLIDO} caracteres`
+        );
+      }
+      return false;
+    }
     setErrorNombre('');
     return true;
   };
@@ -135,6 +164,22 @@ export default function SignUp({ navigation }) {
     if (!REGEX_SOLO_LETRAS.test(limpio)) {
       if (mostrar || intentoEnvio) {
         setErrorApellido('El apellido solo puede contener letras y espacios');
+      }
+      return false;
+    }
+    if (limpio.length < MIN_NOMBRE_APELLIDO) {
+      if (mostrar || intentoEnvio) {
+        setErrorApellido(
+          `El apellido debe tener al menos ${MIN_NOMBRE_APELLIDO} caracteres`
+        );
+      }
+      return false;
+    }
+    if (limpio.length > MAX_NOMBRE_APELLIDO) {
+      if (mostrar || intentoEnvio) {
+        setErrorApellido(
+          `El apellido no puede superar los ${MAX_NOMBRE_APELLIDO} caracteres`
+        );
       }
       return false;
     }
@@ -357,7 +402,7 @@ export default function SignUp({ navigation }) {
                 <View
                   style={[
                     estilos.contenedorInput,
-                    errorNombre ? estilos.bordeErrorInput : null,
+                    estiloInputEstado('nombre', Boolean(errorNombre), Boolean(nombre.trim())),
                   ]}
                 >
                   <Ionicons
@@ -375,11 +420,21 @@ export default function SignUp({ navigation }) {
                     onChangeText={(texto) => {
                       setNombre(texto);
                       setErrorGeneral('');
-                      if (intentoEnvio || errorNombre) validarNombre(texto, true);
+                      if (texto.trim().length > MAX_NOMBRE_APELLIDO) {
+                        setErrorNombre(
+                          `El nombre no puede superar los ${MAX_NOMBRE_APELLIDO} caracteres`
+                        );
+                      } else if (intentoEnvio || errorNombre) {
+                        validarNombre(texto, true);
+                      }
                     }}
-                    onBlur={() => validarNombre(nombre, true)}
+                    onBlur={() => {
+                      setCampoEnfocado('');
+                      validarNombre(nombre, true);
+                    }}
                     autoCapitalize="words"
                     autoCorrect={false}
+                    maxLength={MAX_NOMBRE_APELLIDO}
                     returnKeyType="next"
                     onSubmitEditing={() => refApellido.current?.focus()}
                     editable={!cargando}
@@ -404,7 +459,7 @@ export default function SignUp({ navigation }) {
                 <View
                   style={[
                     estilos.contenedorInput,
-                    errorApellido ? estilos.bordeErrorInput : null,
+                    estiloInputEstado('apellido', Boolean(errorApellido), Boolean(apellido.trim())),
                   ]}
                 >
                   <Ionicons
@@ -423,11 +478,21 @@ export default function SignUp({ navigation }) {
                     onChangeText={(texto) => {
                       setApellido(texto);
                       setErrorGeneral('');
-                      if (intentoEnvio || errorApellido) validarApellido(texto, true);
+                      if (texto.trim().length > MAX_NOMBRE_APELLIDO) {
+                        setErrorApellido(
+                          `El apellido no puede superar los ${MAX_NOMBRE_APELLIDO} caracteres`
+                        );
+                      } else if (intentoEnvio || errorApellido) {
+                        validarApellido(texto, true);
+                      }
                     }}
-                    onBlur={() => validarApellido(apellido, true)}
+                    onBlur={() => {
+                      setCampoEnfocado('');
+                      validarApellido(apellido, true);
+                    }}
                     autoCapitalize="words"
                     autoCorrect={false}
+                    maxLength={MAX_NOMBRE_APELLIDO}
                     returnKeyType="next"
                     onSubmitEditing={() => refCorreo.current?.focus()}
                     editable={!cargando}
@@ -452,7 +517,7 @@ export default function SignUp({ navigation }) {
                 <View
                   style={[
                     estilos.contenedorInput,
-                    errorCorreo ? estilos.bordeErrorInput : null,
+                    estiloInputEstado('correo', Boolean(errorCorreo), Boolean(correo.trim())),
                   ]}
                 >
                   <Ionicons
@@ -473,7 +538,10 @@ export default function SignUp({ navigation }) {
                       setErrorGeneral('');
                       if (intentoEnvio || errorCorreo) validarCorreo(texto, true);
                     }}
-                    onBlur={() => validarCorreo(correo, true)}
+                    onBlur={() => {
+                      setCampoEnfocado('');
+                      validarCorreo(correo, true);
+                    }}
                     keyboardType="email-address"
                     autoCapitalize="none"
                     autoCorrect={false}
@@ -502,7 +570,7 @@ export default function SignUp({ navigation }) {
                 <View
                   style={[
                     estilos.contenedorInput,
-                    errorContrasena ? estilos.bordeErrorInput : null,
+                    estiloInputEstado('contrasena', Boolean(errorContrasena), Boolean(contrasena)),
                   ]}
                 >
                   <Ionicons
@@ -526,7 +594,10 @@ export default function SignUp({ navigation }) {
                         validarConfirmarContrasena(confirmarContrasena, texto, true);
                       }
                     }}
-                    onBlur={() => validarContrasena(contrasena, true)}
+                    onBlur={() => {
+                      setCampoEnfocado('');
+                      validarContrasena(contrasena, true);
+                    }}
                     secureTextEntry={!mostrarContrasena}
                     autoCapitalize="none"
                     autoCorrect={false}
@@ -637,7 +708,11 @@ export default function SignUp({ navigation }) {
                 <View
                   style={[
                     estilos.contenedorInput,
-                    errorConfirmar ? estilos.bordeErrorInput : null,
+                    estiloInputEstado(
+                      'confirmarContrasena',
+                      Boolean(errorConfirmar),
+                      Boolean(confirmarContrasena)
+                    ),
                   ]}
                 >
                   <Ionicons
@@ -660,9 +735,10 @@ export default function SignUp({ navigation }) {
                         validarConfirmarContrasena(texto, contrasena, true);
                       }
                     }}
-                    onBlur={() =>
-                      validarConfirmarContrasena(confirmarContrasena, contrasena, true)
-                    }
+                    onBlur={() => {
+                      setCampoEnfocado('');
+                      validarConfirmarContrasena(confirmarContrasena, contrasena, true);
+                    }}
                     secureTextEntry={!mostrarConfirmar}
                     autoCapitalize="none"
                     autoCorrect={false}
@@ -888,6 +964,11 @@ const estilos = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: COLORES.grisMedio,
     paddingHorizontal: 12,
+  },
+  bordeCreacionInput: {
+    borderWidth: 2,
+    borderColor: COLORES.bordeActivo,
+    backgroundColor: COLORES.fondoActivo,
   },
   bordeErrorInput: {
     borderColor: '#991B1B',

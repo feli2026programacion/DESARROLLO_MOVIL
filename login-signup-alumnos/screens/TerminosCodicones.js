@@ -70,17 +70,17 @@ export default function TerminosCodicones({ navigation }) {
           <View style={estilos.tarjeta}>
             <Text style={estilos.tituloGimnasio}>RT BURPERS GYM</Text>
             <Text style={estilos.textoActualizacion}>
-              Condiciones de uso de la aplicación y gestión de socios
+              Condiciones de uso de la aplicación y gestión de clientes
             </Text>
 
             <Text style={estilos.tituloSeccion}>1. Registro y cuenta de usuario</Text>
             <Text style={estilos.textoCuerpo}>
-              Para utilizar la aplicación de RT Burpers Gym, el usuario debe proporcionar datos reales y actualizados (nombre, apellido y correo electrónico). Cada cuenta es personal e intransferible.
+              Para utilizar la aplicación de RT Burpers Gym, el usuario debe proporcionar datos reales y actualizados (nombre, apellido y correo electrónico) y verificar su cuenta. Cada cuenta es personal e intransferible.
             </Text>
 
-            <Text style={estilos.tituloSeccion}>2. Planes, cuotas y asistencias</Text>
+            <Text style={estilos.tituloSeccion}>2. Alcance de la aplicación y gestión de clientes</Text>
             <Text style={estilos.textoCuerpo}>
-              El acceso a las instalaciones y la reserva o registro de asistencias quedan sujetos al estado del plan contratado y al día de la cuota correspondiente. El gimnasio podrá actualizar horarios o modalidades de entrenamiento informándolo previamente.
+              Esta versión de la aplicación está destinada a la administración de perfil y a la consulta o gestión de clientes registrados en el sistema. Los módulos adicionales del gimnasio pueden incorporarse o modificarse en futuras actualizaciones, y el establecimiento podrá informar cambios operativos o de horarios cuando corresponda.
             </Text>
 
             <Text style={estilos.tituloSeccion}>3. Salud y responsabilidad física</Text>
@@ -90,7 +90,7 @@ export default function TerminosCodicones({ navigation }) {
 
             <Text style={estilos.tituloSeccion}>4. Privacidad y uso de datos</Text>
             <Text style={estilos.textoCuerpo}>
-              Los datos registrados se utilizan exclusivamente para administrar tu perfil, planes, cuotas y asistencias dentro del sistema del gimnasio, protegiendo tu información según las políticas vigentes.
+              Los datos registrados se utilizan exclusivamente para administrar tu perfil de usuario y la información de clientes dentro del sistema del gimnasio, resguardando su uso responsable conforme a las políticas vigentes.
             </Text>
 
             <Pressable

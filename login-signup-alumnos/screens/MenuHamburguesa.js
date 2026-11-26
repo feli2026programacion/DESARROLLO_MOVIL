@@ -146,9 +146,6 @@ export default function MenuHamburguesa({
   const itemsMenu = [
     { ruta: 'Home', etiqueta: 'Inicio', icono: 'home-outline' },
     { ruta: 'Clientes', etiqueta: 'Clientes', icono: 'people-outline' },
-    { ruta: 'Planes', etiqueta: 'Planes', icono: 'barbell-outline' },
-    { ruta: 'Cuotas', etiqueta: 'Cuotas', icono: 'card-outline' },
-    { ruta: 'Asistencias', etiqueta: 'Asistencias', icono: 'calendar-outline' },
   ];
 
   return (
